@@ -1,0 +1,861 @@
+/*
+===========================================================================
+Copyright (C) 1999-2005 Id Software, Inc.
+
+This file is part of Quake III Arena source code.
+
+Quake III Arena source code is free software; you can redistribute it
+and/or modify it under the terms of the GNU General Public License as
+published by the Free Software Foundation; either version 2 of the License,
+or (at your option) any later version.
+
+Quake III Arena source code is distributed in the hope that it will be
+useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Quake III Arena source code; if not, write to the Free Software
+Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+===========================================================================
+*/
+/*
+** QGL.H
+*/
+
+#ifndef __QGL_H__
+#define __QGL_H__
+
+#if defined(__ORBIS__) || defined(__PS4__)
+/*
+ * PS4 / Piglet: Use GLES2 + EGL headers directly.
+ * On PS4, GL functions are linked directly (no runtime loading needed).
+ * Pigletv2VSH.h defines __PIGLET__ and includes GLES2/gl2.h and EGL/egl.h.
+ */
+#include <stdint.h>
+#include <stdbool.h>
+#include <orbis/Pigletv2VSH.h>
+
+// GLES2 does not define APIENTRY the same way desktop GL does.
+#ifndef APIENTRY
+#define APIENTRY
+#endif
+#ifndef APIENTRYP
+#define APIENTRYP APIENTRY *
+#endif
+
+// These are not used on PS4 (GL1 fixed-function), stub them out
+#define qglActiveTextureARB glActiveTexture
+#define qglClientActiveTextureARB(x)
+#define qglMultiTexCoord2fARB(target, s, t)
+#define qglLockArraysEXT(first, count)
+#define qglUnlockArraysEXT()
+
+
+#else /* !__ORBIS__ */
+
+#ifdef USE_INTERNAL_SDL_HEADERS
+#	include "SDL_opengl.h"
+#else
+#	include <SDL_opengl.h>
+#endif
+
+extern void (APIENTRYP qglActiveTextureARB) (GLenum texture);
+extern void (APIENTRYP qglClientActiveTextureARB) (GLenum texture);
+extern void (APIENTRYP qglMultiTexCoord2fARB) (GLenum target, GLfloat s, GLfloat t);
+
+extern void (APIENTRYP qglLockArraysEXT) (GLint first, GLsizei count);
+extern void (APIENTRYP qglUnlockArraysEXT) (void);
+
+#endif /* __ORBIS__ */
+
+
+//===========================================================================
+
+// GL function loader, based on https://gist.github.com/rygorous/16796a0c876cf8a5f542caddb55bce8a
+// get missing functions from code/SDL2/include/SDL_opengl.h
+
+// OpenGL 1.0/1.1, OpenGL ES 1.0, and OpenGL 3.2 core profile
+#define QGL_1_1_PROCS \
+	GLE(void, BindTexture, GLenum target, GLuint texture) \
+	GLE(void, BlendFunc, GLenum sfactor, GLenum dfactor) \
+	GLE(void, ClearColor, GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha) \
+	GLE(void, Clear, GLbitfield mask) \
+	GLE(void, ClearStencil, GLint s) \
+	GLE(void, ColorMask, GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) \
+	GLE(void, CopyTexSubImage2D, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height) \
+	GLE(void, CullFace, GLenum mode) \
+	GLE(void, DeleteTextures, GLsizei n, const GLuint *textures) \
+	GLE(void, DepthFunc, GLenum func) \
+	GLE(void, DepthMask, GLboolean flag) \
+	GLE(void, Disable, GLenum cap) \
+	GLE(void, DrawArrays, GLenum mode, GLint first, GLsizei count) \
+	GLE(void, DrawElements, GLenum mode, GLsizei count, GLenum type, const GLvoid *indices) \
+	GLE(void, Enable, GLenum cap) \
+	GLE(void, Finish, void) \
+	GLE(void, Flush, void) \
+	GLE(void, GenTextures, GLsizei n, GLuint *textures ) \
+	GLE(void, GetBooleanv, GLenum pname, GLboolean *params) \
+	GLE(GLenum, GetError, void) \
+	GLE(void, GetIntegerv, GLenum pname, GLint *params) \
+	GLE(const GLubyte *, GetString, GLenum name) \
+	GLE(void, LineWidth, GLfloat width) \
+	GLE(void, PolygonOffset, GLfloat factor, GLfloat units) \
+	GLE(void, ReadPixels, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *pixels) \
+	GLE(void, Scissor, GLint x, GLint y, GLsizei width, GLsizei height) \
+	GLE(void, StencilFunc, GLenum func, GLint ref, GLuint mask) \
+	GLE(void, StencilMask, GLuint mask) \
+	GLE(void, StencilOp, GLenum fail, GLenum zfail, GLenum zpass) \
+	GLE(void, TexImage2D, GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels) \
+	GLE(void, TexParameterf, GLenum target, GLenum pname, GLfloat param) \
+	GLE(void, TexParameteri, GLenum target, GLenum pname, GLint param) \
+	GLE(void, TexSubImage2D, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels) \
+	GLE(void, Viewport, GLint x, GLint y, GLsizei width, GLsizei height) \
+
+// OpenGL 1.0/1.1 and OpenGL ES 1.x but not OpenGL 3.2 core profile
+#define QGL_1_1_FIXED_FUNCTION_PROCS \
+	GLE(void, AlphaFunc, GLenum func, GLclampf ref) \
+	GLE(void, Color4f, GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) \
+	GLE(void, ColorPointer, GLint size, GLenum type, GLsizei stride, const GLvoid *ptr) \
+	GLE(void, DisableClientState, GLenum cap) \
+	GLE(void, EnableClientState, GLenum cap) \
+	GLE(void, LoadIdentity, void) \
+	GLE(void, LoadMatrixf, const GLfloat *m) \
+	GLE(void, MatrixMode, GLenum mode) \
+	GLE(void, PopMatrix, void) \
+	GLE(void, PushMatrix, void) \
+	GLE(void, ShadeModel, GLenum mode) \
+	GLE(void, TexCoordPointer, GLint size, GLenum type, GLsizei stride, const GLvoid *ptr) \
+	GLE(void, TexEnvf, GLenum target, GLenum pname, GLfloat param) \
+	GLE(void, Translatef, GLfloat x, GLfloat y, GLfloat z) \
+	GLE(void, VertexPointer, GLint size, GLenum type, GLsizei stride, const GLvoid *ptr) \
+
+// OpenGL 1.0/1.1 and 3.2 core profile but not OpenGL ES 1.x
+#define QGL_DESKTOP_1_1_PROCS \
+	GLE(void, ClearDepth, GLclampd depth) \
+	GLE(void, DepthRange, GLclampd near_val, GLclampd far_val) \
+	GLE(void, DrawBuffer, GLenum mode) \
+	GLE(void, PolygonMode, GLenum face, GLenum mode) \
+
+// OpenGL 1.0/1.1 but not OpenGL 3.2 core profile or OpenGL ES 1.x
+#define QGL_DESKTOP_1_1_FIXED_FUNCTION_PROCS \
+	GLE(void, ArrayElement, GLint i) \
+	GLE(void, Begin, GLenum mode) \
+	GLE(void, ClipPlane, GLenum plane, const GLdouble *equation) \
+	GLE(void, Color3f, GLfloat red, GLfloat green, GLfloat blue) \
+	GLE(void, Color4ubv, const GLubyte *v) \
+	GLE(void, End, void) \
+	GLE(void, Frustum, GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble near_val, GLdouble far_val) \
+	GLE(void, Ortho, GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble near_val, GLdouble far_val) \
+	GLE(void, TexCoord2f, GLfloat s, GLfloat t) \
+	GLE(void, TexCoord2fv, const GLfloat *v) \
+	GLE(void, Vertex2f, GLfloat x, GLfloat y) \
+	GLE(void, Vertex3f, GLfloat x, GLfloat y, GLfloat z) \
+	GLE(void, Vertex3fv, const GLfloat *v) \
+
+// OpenGL ES 1.1 and OpenGL ES 2.0 but not desktop OpenGL 1.x
+#define QGL_ES_1_1_PROCS \
+	GLE(void, ClearDepthf, GLclampf depth) \
+	GLE(void, DepthRangef, GLclampf near_val, GLclampf far_val) \
+
+// OpenGL ES 1.1 but not OpenGL ES 2.0 or desktop OpenGL 1.x
+#define QGL_ES_1_1_FIXED_FUNCTION_PROCS \
+	GLE(void, ClipPlanef, GLenum plane, const GLfloat *equation) \
+	GLE(void, Frustumf, GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat near_val, GLfloat far_val) \
+	GLE(void, Orthof, GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat near_val, GLfloat far_val) \
+
+// OpenGL 1.3, was GL_ARB_texture_compression
+#define QGL_1_3_PROCS \
+	GLE(void, ActiveTexture, GLenum texture) \
+	GLE(void, CompressedTexImage2D, GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void *data) \
+	GLE(void, CompressedTexSubImage2D, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const void *data) \
+
+// GL_ARB_occlusion_query, built-in to OpenGL 1.5 but not OpenGL ES 2.0
+#define QGL_ARB_occlusion_query_PROCS \
+	GLE(void, GenQueries, GLsizei n, GLuint *ids) \
+	GLE(void, DeleteQueries, GLsizei n, const GLuint *ids) \
+	GLE(void, BeginQuery, GLenum target, GLuint id) \
+	GLE(void, EndQuery, GLenum target) \
+	GLE(void, GetQueryObjectiv, GLuint id, GLenum pname, GLint *params) \
+	GLE(void, GetQueryObjectuiv, GLuint id, GLenum pname, GLuint *params) \
+
+// OpenGL 1.5, was GL_ARB_vertex_buffer_object
+#define QGL_1_5_PROCS \
+	GLE(void, BindBuffer, GLenum target, GLuint buffer) \
+	GLE(void, DeleteBuffers, GLsizei n, const GLuint *buffers) \
+	GLE(void, GenBuffers, GLsizei n, GLuint *buffers) \
+	GLE(void, BufferData, GLenum target, GLsizeiptr size, const void *data, GLenum usage) \
+	GLE(void, BufferSubData, GLenum target, GLintptr offset, GLsizeiptr size, const void *data) \
+
+// OpenGL 2.0, was GL_ARB_shading_language_100, GL_ARB_vertex_program, GL_ARB_shader_objects, and GL_ARB_vertex_shader
+#define QGL_2_0_PROCS \
+	GLE(void, AttachShader, GLuint program, GLuint shader) \
+	GLE(void, BindAttribLocation, GLuint program, GLuint index, const GLchar *name) \
+	GLE(void, CompileShader, GLuint shader) \
+	GLE(GLuint, CreateProgram, void) \
+	GLE(GLuint, CreateShader, GLenum type) \
+	GLE(void, DeleteProgram, GLuint program) \
+	GLE(void, DeleteShader, GLuint shader) \
+	GLE(void, DetachShader, GLuint program, GLuint shader) \
+	GLE(void, DisableVertexAttribArray, GLuint index) \
+	GLE(void, EnableVertexAttribArray, GLuint index) \
+	GLE(void, GetActiveUniform, GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name) \
+	GLE(void, GetProgramiv, GLuint program, GLenum pname, GLint *params) \
+	GLE(void, GetProgramInfoLog, GLuint program, GLsizei bufSize, GLsizei *length, GLchar *infoLog) \
+	GLE(void, GetShaderiv, GLuint shader, GLenum pname, GLint *params) \
+	GLE(void, GetShaderInfoLog, GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *infoLog) \
+	GLE(void, GetShaderSource, GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *source) \
+	GLE(GLint, GetUniformLocation, GLuint program, const GLchar *name) \
+	GLE(void, LinkProgram, GLuint program) \
+	GLE(void, ShaderSource, GLuint shader, GLsizei count, const GLchar* *string, const GLint *length) \
+	GLE(void, UseProgram, GLuint program) \
+	GLE(void, Uniform1f, GLint location, GLfloat v0) \
+	GLE(void, Uniform2f, GLint location, GLfloat v0, GLfloat v1) \
+	GLE(void, Uniform3f, GLint location, GLfloat v0, GLfloat v1, GLfloat v2) \
+	GLE(void, Uniform4f, GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) \
+	GLE(void, Uniform1i, GLint location, GLint v0) \
+	GLE(void, Uniform1fv, GLint location, GLsizei count, const GLfloat *value) \
+	GLE(void, UniformMatrix4fv, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) \
+	GLE(void, ValidateProgram, GLuint program) \
+	GLE(void, VertexAttribPointer, GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer) \
+
+// GL_NVX_gpu_memory_info
+#ifndef GL_NVX_gpu_memory_info
+#define GL_NVX_gpu_memory_info
+#define GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX          0x9047
+#define GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX    0x9048
+#define GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX  0x9049
+#define GL_GPU_MEMORY_INFO_EVICTION_COUNT_NVX            0x904A
+#define GL_GPU_MEMORY_INFO_EVICTED_MEMORY_NVX            0x904B
+#endif
+
+// GL_ATI_meminfo
+#ifndef GL_ATI_meminfo
+#define GL_ATI_meminfo
+#define GL_VBO_FREE_MEMORY_ATI                    0x87FB
+#define GL_TEXTURE_FREE_MEMORY_ATI                0x87FC
+#define GL_RENDERBUFFER_FREE_MEMORY_ATI           0x87FD
+#endif
+
+// GL_ARB_texture_float
+#ifndef GL_ARB_texture_float
+#define GL_ARB_texture_float
+#define GL_TEXTURE_RED_TYPE_ARB             0x8C10
+#define GL_TEXTURE_GREEN_TYPE_ARB           0x8C11
+#define GL_TEXTURE_BLUE_TYPE_ARB            0x8C12
+#define GL_TEXTURE_ALPHA_TYPE_ARB           0x8C13
+#define GL_TEXTURE_LUMINANCE_TYPE_ARB       0x8C14
+#define GL_TEXTURE_INTENSITY_TYPE_ARB       0x8C15
+#define GL_TEXTURE_DEPTH_TYPE_ARB           0x8C16
+#define GL_UNSIGNED_NORMALIZED_ARB          0x8C17
+#define GL_RGBA32F_ARB                      0x8814
+#define GL_RGB32F_ARB                       0x8815
+#define GL_ALPHA32F_ARB                     0x8816
+#define GL_INTENSITY32F_ARB                 0x8817
+#define GL_LUMINANCE32F_ARB                 0x8818
+#define GL_LUMINANCE_ALPHA32F_ARB           0x8819
+#define GL_RGBA16F_ARB                      0x881A
+#define GL_RGB16F_ARB                       0x881B
+#define GL_ALPHA16F_ARB                     0x881C
+#define GL_INTENSITY16F_ARB                 0x881D
+#define GL_LUMINANCE16F_ARB                 0x881E
+#define GL_LUMINANCE_ALPHA16F_ARB           0x881F
+#endif
+
+#ifndef GL_ARB_half_float_pixel
+#define GL_ARB_half_float_pixel
+#define GL_HALF_FLOAT_ARB                   0x140B
+#endif
+
+// OpenGL 3.0 specific
+#define QGL_3_0_PROCS \
+	GLE(const GLubyte *, GetStringi, GLenum name, GLuint index) \
+
+// GL_ARB_framebuffer_object, built-in to OpenGL 3.0
+#define QGL_ARB_framebuffer_object_PROCS \
+	GLE(void, BindRenderbuffer, GLenum target, GLuint renderbuffer) \
+	GLE(void, DeleteRenderbuffers, GLsizei n, const GLuint *renderbuffers) \
+	GLE(void, GenRenderbuffers, GLsizei n, GLuint *renderbuffers) \
+	GLE(void, RenderbufferStorage, GLenum target, GLenum internalformat, GLsizei width, GLsizei height) \
+	GLE(void, BindFramebuffer, GLenum target, GLuint framebuffer) \
+	GLE(void, DeleteFramebuffers, GLsizei n, const GLuint *framebuffers) \
+	GLE(void, GenFramebuffers, GLsizei n, GLuint *framebuffers) \
+	GLE(GLenum, CheckFramebufferStatus, GLenum target) \
+	GLE(void, FramebufferTexture2D, GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) \
+	GLE(void, FramebufferRenderbuffer, GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer) \
+	GLE(void, GenerateMipmap, GLenum target) \
+	GLE(void, BlitFramebuffer, GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) \
+	GLE(void, RenderbufferStorageMultisample, GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height) \
+
+// GL_ARB_vertex_array_object, built-in to OpenGL 3.0
+#define QGL_ARB_vertex_array_object_PROCS \
+	GLE(void, BindVertexArray, GLuint array) \
+	GLE(void, DeleteVertexArrays, GLsizei n, const GLuint *arrays) \
+	GLE(void, GenVertexArrays, GLsizei n, GLuint *arrays) \
+
+#ifndef GL_ARB_texture_compression_rgtc
+#define GL_ARB_texture_compression_rgtc
+#define GL_COMPRESSED_RED_RGTC1                       0x8DBB
+#define GL_COMPRESSED_SIGNED_RED_RGTC1                0x8DBC
+#define GL_COMPRESSED_RG_RGTC2                        0x8DBD
+#define GL_COMPRESSED_SIGNED_RG_RGTC2                 0x8DBE
+#endif
+
+#ifndef GL_ARB_texture_compression_bptc
+#define GL_ARB_texture_compression_bptc
+#define GL_COMPRESSED_RGBA_BPTC_UNORM_ARB                 0x8E8C
+#define GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_ARB           0x8E8D
+#define GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_ARB           0x8E8E
+#define GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_ARB         0x8E8F
+#endif
+
+#ifndef GL_ARB_depth_clamp
+#define GL_ARB_depth_clamp
+#define GL_DEPTH_CLAMP				      0x864F
+#endif
+
+#ifndef GL_ARB_seamless_cube_map
+#define GL_ARB_seamless_cube_map
+#define GL_TEXTURE_CUBE_MAP_SEAMLESS               0x884F
+#endif
+
+// GL_EXT_direct_state_access
+#define QGL_EXT_direct_state_access_PROCS \
+	GLE(GLvoid, BindMultiTextureEXT, GLenum texunit, GLenum target, GLuint texture) \
+	GLE(GLvoid, TextureParameterfEXT, GLuint texture, GLenum target, GLenum pname, GLfloat param) \
+	GLE(GLvoid, TextureParameteriEXT, GLuint texture, GLenum target, GLenum pname, GLint param) \
+	GLE(GLvoid, TextureImage2DEXT, GLuint texture, GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels) \
+	GLE(GLvoid, TextureSubImage2DEXT, GLuint texture, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels) \
+	GLE(GLvoid, CopyTextureSubImage2DEXT, GLuint texture, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height) \
+	GLE(GLvoid, CompressedTextureImage2DEXT, GLuint texture, GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const GLvoid *data) \
+	GLE(GLvoid, CompressedTextureSubImage2DEXT, GLuint texture, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const GLvoid *data) \
+	GLE(GLvoid, GenerateTextureMipmapEXT, GLuint texture, GLenum target) \
+	GLE(GLvoid, ProgramUniform1iEXT, GLuint program, GLint location, GLint v0) \
+	GLE(GLvoid, ProgramUniform1fEXT, GLuint program, GLint location, GLfloat v0) \
+	GLE(GLvoid, ProgramUniform2fEXT, GLuint program, GLint location, GLfloat v0, GLfloat v1) \
+	GLE(GLvoid, ProgramUniform3fEXT, GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2) \
+	GLE(GLvoid, ProgramUniform4fEXT, GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) \
+	GLE(GLvoid, ProgramUniform1fvEXT, GLuint program, GLint location, GLsizei count, const GLfloat *value) \
+	GLE(GLvoid, ProgramUniformMatrix4fvEXT, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) \
+	GLE(GLvoid, NamedRenderbufferStorageEXT, GLuint renderbuffer, GLenum internalformat, GLsizei width, GLsizei height) \
+	GLE(GLvoid, NamedRenderbufferStorageMultisampleEXT, GLuint renderbuffer, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height) \
+	GLE(GLenum, CheckNamedFramebufferStatusEXT, GLuint framebuffer, GLenum target) \
+	GLE(GLvoid, NamedFramebufferTexture2DEXT, GLuint framebuffer, GLenum attachment, GLenum textarget, GLuint texture, GLint level) \
+	GLE(GLvoid, NamedFramebufferRenderbufferEXT, GLuint framebuffer, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer) \
+
+/*
+ * On PS4/Piglet, GL functions are available directly via the GLES2 headers.
+ * We define qgl* as macros mapping to gl* so the renderer code works unchanged.
+ * Functions not available in GLES2 are defined as no-ops or stubs.
+ */
+#if defined(__ORBIS__) || defined(__PS4__)
+
+// Direct mappings: qglFoo -> glFoo for all GLES2 core functions
+#define GLE(ret, name, ...) static inline ret APIENTRY qgl##name(__VA_ARGS__);
+// We actually just use macros:
+#undef GLE
+#define GLE(ret, name, ...) typedef ret APIENTRY name##proc(__VA_ARGS__);
+QGL_1_1_PROCS;
+QGL_ES_1_1_PROCS;
+QGL_1_3_PROCS;
+QGL_1_5_PROCS;
+QGL_2_0_PROCS;
+QGL_ARB_framebuffer_object_PROCS;
+#undef GLE
+
+// On PS4: map qgl* to gl* directly via macros for core GLES2 functions
+#define qglBindTexture          glBindTexture
+#define qglBlendFunc            glBlendFunc
+#define qglClearColor           glClearColor
+#define qglClear                glClear
+#define qglClearStencil         glClearStencil
+#define qglColorMask            glColorMask
+#define qglCopyTexSubImage2D    glCopyTexSubImage2D
+#define qglCullFace             glCullFace
+#define qglDeleteTextures       glDeleteTextures
+#define qglDepthFunc            glDepthFunc
+#define qglDepthMask            glDepthMask
+#define qglDisable              glDisable
+#define qglDrawElements         glDrawElements
+#define qglEnable               glEnable
+#define qglFinish               glFinish
+#define qglFlush                glFlush
+#define qglFrontFace            glFrontFace
+#define qglGenTextures          glGenTextures
+#define qglGetError             glGetError
+#define qglGetIntegerv          glGetIntegerv
+#define qglGetString            glGetString
+#define qglLineWidth            glLineWidth
+#define qglPixelStorei          glPixelStorei
+#define qglReadPixels           glReadPixels
+#define qglScissor              glScissor
+#define qglStencilFunc          glStencilFunc
+#define qglStencilMask          glStencilMask
+#define qglStencilOp            glStencilOp
+#define qglTexImage2D           glTexImage2D
+#define qglTexParameterf        glTexParameterf
+#define qglTexParameteri        glTexParameteri
+#define qglTexSubImage2D        glTexSubImage2D
+#define qglViewport             glViewport
+#define qglGetBooleanv          glGetBooleanv
+#define qglPolygonOffset        glPolygonOffset
+#define qglActiveTexture        glActiveTexture
+#define qglCompressedTexImage2D glCompressedTexImage2D
+#define qglCompressedTexSubImage2D glCompressedTexSubImage2D
+#define qglGenerateMipmap       glGenerateMipmap
+#define qglBindBuffer           glBindBuffer
+#define qglDeleteBuffers        glDeleteBuffers
+#define qglGenBuffers           glGenBuffers
+#define qglBufferData           glBufferData
+#define qglBufferSubData        glBufferSubData
+#define qglDrawArrays           glDrawArrays
+#define qglBlendFuncSeparate    glBlendFuncSeparate
+#define qglStencilFuncSeparate  glStencilFuncSeparate
+#define qglStencilOpSeparate    glStencilOpSeparate
+
+// Shader functions
+#define qglAttachShader         glAttachShader
+#define qglBindAttribLocation   glBindAttribLocation
+#define qglCompileShader        glCompileShader
+#define qglCreateProgram        glCreateProgram
+#define qglCreateShader         glCreateShader
+#define qglDeleteProgram        glDeleteProgram
+#define qglDeleteShader         glDeleteShader
+#define qglDetachShader         glDetachShader
+#define qglDisableVertexAttribArray glDisableVertexAttribArray
+#define qglEnableVertexAttribArray  glEnableVertexAttribArray
+#define qglGetActiveUniform     glGetActiveUniform
+#define qglGetProgramiv         glGetProgramiv
+#define qglGetProgramInfoLog    glGetProgramInfoLog
+#define qglGetShaderiv          glGetShaderiv
+#define qglGetShaderInfoLog     glGetShaderInfoLog
+#define qglGetShaderSource      glGetShaderSource
+#define qglGetUniformLocation   glGetUniformLocation
+#define qglLinkProgram          glLinkProgram
+#define qglShaderSource         glShaderSource
+#define qglShaderBinary         glShaderBinary
+#define qglUseProgram           glUseProgram
+#define qglUniform1f            glUniform1f
+#define qglUniform2f            glUniform2f
+#define qglUniform3f            glUniform3f
+#define qglUniform4f            glUniform4f
+#define qglUniform1i            glUniform1i
+#define qglUniform1fv           glUniform1fv
+#define qglUniform2fv           glUniform2fv
+#define qglUniform3fv           glUniform3fv
+#define qglUniform4fv           glUniform4fv
+#define qglUniformMatrix4fv     glUniformMatrix4fv
+#define qglValidateProgram      glValidateProgram
+#define qglVertexAttrib4f       glVertexAttrib4f
+#define qglVertexAttrib4fv      glVertexAttrib4fv
+#define qglVertexAttribPointer  glVertexAttribPointer
+#define qglGetAttribLocation    glGetAttribLocation
+
+// FBO functions (core in GLES2)
+#define qglGenFramebuffers      glGenFramebuffers
+#define qglDeleteFramebuffers   glDeleteFramebuffers
+#define qglBindFramebuffer      glBindFramebuffer
+#define qglFramebufferTexture2D glFramebufferTexture2D
+#define qglCheckFramebufferStatus glCheckFramebufferStatus
+#define qglGenRenderbuffers     glGenRenderbuffers
+#define qglDeleteRenderbuffers  glDeleteRenderbuffers
+#define qglBindRenderbuffer     glBindRenderbuffer
+#define qglRenderbufferStorage  glRenderbufferStorage
+#define qglFramebufferRenderbuffer glFramebufferRenderbuffer
+#define qglGetRenderbufferParameteriv glGetRenderbufferParameteriv
+
+// Desktop GL enums that don't exist in GLES2 headers.
+// Map to GLES2 equivalents so renderer code compiles unchanged.
+// sRGB enums: define with their actual GL values so switch statements
+// compile. At runtime these formats are never selected because
+// glRefConfig.textureFloat is false on GLES2.
+#ifndef GL_SRGB_EXT
+#define GL_SRGB_EXT                         0x8C40
+#endif
+#ifndef GL_SRGB8_EXT
+#define GL_SRGB8_EXT                        0x8C41
+#endif
+#ifndef GL_SRGB_ALPHA_EXT
+#define GL_SRGB_ALPHA_EXT                   0x8C42
+#endif
+#ifndef GL_SRGB8_ALPHA8_EXT
+#define GL_SRGB8_ALPHA8_EXT                 0x8C43
+#endif
+#ifndef GL_SLUMINANCE_EXT
+#define GL_SLUMINANCE_EXT                   0x8C46
+#endif
+#ifndef GL_SLUMINANCE8_EXT
+#define GL_SLUMINANCE8_EXT                  0x8C47
+#endif
+#ifndef GL_SLUMINANCE_ALPHA_EXT
+#define GL_SLUMINANCE_ALPHA_EXT             0x8C44
+#endif
+#ifndef GL_SLUMINANCE8_ALPHA8_EXT
+#define GL_SLUMINANCE8_ALPHA8_EXT           0x8C45
+#endif
+#ifndef GL_COMPRESSED_SRGB_S3TC_DXT1_EXT
+#define GL_COMPRESSED_SRGB_S3TC_DXT1_EXT        0x8C4C
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT
+#define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT  0x8C4D
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT
+#define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT  0x8C4E
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT
+#define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT  0x8C4F
+#endif
+
+// Desktop-only polygon mode enums (used by stubbed qglPolygonMode)
+#ifndef GL_FILL
+#define GL_FILL                   0x1B02
+#endif
+#ifndef GL_LINE
+#define GL_LINE                   0x1B01
+#endif
+
+// GL_BACK_LEFT / GL_BACK_RIGHT (used by qglDrawBuffer, which is stubbed)
+#ifndef GL_BACK_LEFT
+#define GL_BACK_LEFT              0x0402
+#endif
+#ifndef GL_BACK_RIGHT
+#define GL_BACK_RIGHT             0x0403
+#endif
+
+// GL_COLOR_BUFFER_BIT is core GLES2, but just in case
+#ifndef GL_COLOR_BUFFER_BIT
+#define GL_COLOR_BUFFER_BIT       0x00004000
+#endif
+
+// Desktop depth formats -> GLES2 equivalents
+#ifndef GL_DEPTH_COMPONENT16_ARB
+#define GL_DEPTH_COMPONENT16_ARB  GL_DEPTH_COMPONENT16
+#endif
+#ifndef GL_DEPTH_COMPONENT24_ARB
+#define GL_DEPTH_COMPONENT24_ARB  GL_DEPTH_COMPONENT16
+#endif
+#ifndef GL_DEPTH_COMPONENT32_ARB
+#define GL_DEPTH_COMPONENT32_ARB  GL_DEPTH_COMPONENT16
+#endif
+#ifndef GL_DEPTH_COMPONENT24
+#define GL_DEPTH_COMPONENT24      GL_DEPTH_COMPONENT16
+#endif
+
+// Desktop float texture formats -> GLES2 RGBA8 fallback
+// GLES2 has no float textures; HDR falls back to LDR
+#ifndef GL_RGB16F_ARB
+#define GL_RGB16F_ARB             GL_RGB
+#endif
+#ifndef GL_RGBA16F_ARB
+#define GL_RGBA16F_ARB            GL_RGBA
+#endif
+#ifndef GL_RGB32F_ARB
+#define GL_RGB32F_ARB             GL_RGB
+#endif
+#ifndef GL_RGBA32F_ARB
+#define GL_RGBA32F_ARB            GL_RGBA
+#endif
+
+// Desktop stencil formats not in GLES2 (only STENCIL_INDEX8 exists)
+#ifndef GL_STENCIL_INDEX
+#define GL_STENCIL_INDEX          GL_STENCIL_INDEX8
+#endif
+#ifndef GL_STENCIL_INDEX1
+#define GL_STENCIL_INDEX1         GL_STENCIL_INDEX8
+#endif
+#ifndef GL_STENCIL_INDEX4
+#define GL_STENCIL_INDEX4         GL_STENCIL_INDEX8
+#endif
+#ifndef GL_STENCIL_INDEX16
+#define GL_STENCIL_INDEX16        GL_STENCIL_INDEX8
+#endif
+
+// FBO status codes that may not be in GLES2 headers
+#ifndef GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER
+#define GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER    0x8CDB
+#endif
+#ifndef GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER
+#define GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER    0x8CDC
+#endif
+#ifndef GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE
+#define GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE    0x8D56
+#endif
+
+// GL_MAX_COLOR_ATTACHMENTS may not be in GLES2 headers
+#ifndef GL_MAX_COLOR_ATTACHMENTS
+#define GL_MAX_COLOR_ATTACHMENTS  0x8CDF
+#endif
+
+// GL_MAX_SAMPLES may not be in GLES2 headers
+#ifndef GL_MAX_SAMPLES
+#define GL_MAX_SAMPLES            0x8D57
+#endif
+
+// GL_READ_FRAMEBUFFER / GL_DRAW_FRAMEBUFFER may not be in GLES2 headers
+#ifndef GL_READ_FRAMEBUFFER
+#define GL_READ_FRAMEBUFFER       0x8CA8
+#endif
+#ifndef GL_DRAW_FRAMEBUFFER
+#define GL_DRAW_FRAMEBUFFER       0x8CA9
+#endif
+
+// GL_DEPTH_STENCIL / GL_DEPTH24_STENCIL8 for packed depth-stencil
+#ifndef GL_DEPTH_STENCIL
+#define GL_DEPTH_STENCIL          0x84F9
+#endif
+#ifndef GL_DEPTH24_STENCIL8
+#define GL_DEPTH24_STENCIL8       0x88F0
+#endif
+
+// Cubemap face enums (may be named differently in GLES2)
+#ifndef GL_TEXTURE_CUBE_MAP_POSITIVE_X_ARB
+#define GL_TEXTURE_CUBE_MAP_POSITIVE_X_ARB GL_TEXTURE_CUBE_MAP_POSITIVE_X
+#endif
+
+// Occlusion query target (not used on PS4 but referenced in code)
+#ifndef GL_ANY_SAMPLES_PASSED
+#define GL_ANY_SAMPLES_PASSED     0x8C2F
+#endif
+#ifndef GL_SAMPLES_PASSED
+#define GL_SAMPLES_PASSED         0x8914
+#endif
+
+// Desktop GL enums not present in GLES2 but referenced in guarded code paths
+#ifndef GL_MAX_VERTEX_UNIFORM_COMPONENTS
+#define GL_MAX_VERTEX_UNIFORM_COMPONENTS 0x8B4A
+#endif
+#ifndef GL_STACK_OVERFLOW
+#define GL_STACK_OVERFLOW         0x0503
+#endif
+#ifndef GL_STACK_UNDERFLOW
+#define GL_STACK_UNDERFLOW        0x0504
+#endif
+#ifndef GL_NUM_EXTENSIONS
+#define GL_NUM_EXTENSIONS         0x821D
+#endif
+
+// Desktop-only functions: no-op or GLES equivalents
+#define qglClearDepth(d)        glClearDepthf((GLfloat)(d))
+#define qglDepthRange(n, f)     glDepthRangef((GLfloat)(n), (GLfloat)(f))
+#define qglDrawBuffer(mode)     ((void)0)
+#define qglPolygonMode(f, m)    ((void)0)
+#define qglGetStringi(name, i)  NULL
+
+// Not available in GLES2: occlusion queries, VAOs, blit, multisample
+#define qglGenQueries(n, ids)
+#define qglDeleteQueries(n, ids)
+#define qglBeginQuery(target, id)
+#define qglEndQuery(target)
+#define qglGetQueryObjectiv(id, pname, params)
+#define qglGetQueryObjectuiv(id, pname, params)
+#define qglBindVertexArray(array)
+#define qglDeleteVertexArrays(n, arrays)
+#define qglGenVertexArrays(n, arrays)
+#define qglBlitFramebuffer(sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, mask, filter)
+#define qglRenderbufferStorageMultisample(target, samples, fmt, w, h)
+
+// DSA functions: map to GLDSA_* fallback implementations in tr_dsa.c.
+// These bind-then-call the core GL equivalents.
+extern void GLDSA_BindMultiTextureEXT(GLenum texunit, GLenum target, GLuint texture);
+extern void GLDSA_TextureParameterfEXT(GLuint texture, GLenum target, GLenum pname, GLfloat param);
+extern void GLDSA_TextureParameteriEXT(GLuint texture, GLenum target, GLenum pname, GLint param);
+extern void GLDSA_TextureImage2DEXT(GLuint texture, GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels);
+extern void GLDSA_TextureSubImage2DEXT(GLuint texture, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *pixels);
+extern void GLDSA_CopyTextureSubImage2DEXT(GLuint texture, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height);
+extern void GLDSA_CompressedTextureImage2DEXT(GLuint texture, GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void *data);
+extern void GLDSA_CompressedTextureSubImage2DEXT(GLuint texture, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const void *data);
+extern void GLDSA_GenerateTextureMipmapEXT(GLuint texture, GLenum target);
+extern void GLDSA_ProgramUniform1iEXT(GLuint program, GLint location, GLint v0);
+extern void GLDSA_ProgramUniform1fEXT(GLuint program, GLint location, GLfloat v0);
+extern void GLDSA_ProgramUniform2fEXT(GLuint program, GLint location, GLfloat v0, GLfloat v1);
+extern void GLDSA_ProgramUniform3fEXT(GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2);
+extern void GLDSA_ProgramUniform4fEXT(GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3);
+extern void GLDSA_ProgramUniform1fvEXT(GLuint program, GLint location, GLsizei count, const GLfloat *value);
+extern void GLDSA_ProgramUniformMatrix4fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
+extern void GLDSA_NamedRenderbufferStorageEXT(GLuint renderbuffer, GLenum internalformat, GLsizei width, GLsizei height);
+extern void GLDSA_NamedRenderbufferStorageMultisampleEXT(GLuint renderbuffer, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height);
+extern GLenum GLDSA_CheckNamedFramebufferStatusEXT(GLuint framebuffer, GLenum target);
+extern void GLDSA_NamedFramebufferTexture2DEXT(GLuint framebuffer, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
+extern void GLDSA_NamedFramebufferRenderbufferEXT(GLuint framebuffer, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
+
+#define qglBindMultiTextureEXT              GLDSA_BindMultiTextureEXT
+#define qglTextureParameterfEXT             GLDSA_TextureParameterfEXT
+#define qglTextureParameteriEXT             GLDSA_TextureParameteriEXT
+#define qglTextureImage2DEXT                GLDSA_TextureImage2DEXT
+#define qglTextureSubImage2DEXT             GLDSA_TextureSubImage2DEXT
+#define qglCopyTextureSubImage2DEXT         GLDSA_CopyTextureSubImage2DEXT
+#define qglCompressedTextureImage2DEXT      GLDSA_CompressedTextureImage2DEXT
+#define qglCompressedTextureSubImage2DEXT   GLDSA_CompressedTextureSubImage2DEXT
+#define qglGenerateTextureMipmapEXT         GLDSA_GenerateTextureMipmapEXT
+#define qglProgramUniform1iEXT              GLDSA_ProgramUniform1iEXT
+#define qglProgramUniform1fEXT              GLDSA_ProgramUniform1fEXT
+#define qglProgramUniform2fEXT              GLDSA_ProgramUniform2fEXT
+#define qglProgramUniform3fEXT              GLDSA_ProgramUniform3fEXT
+#define qglProgramUniform4fEXT              GLDSA_ProgramUniform4fEXT
+#define qglProgramUniform1fvEXT             GLDSA_ProgramUniform1fvEXT
+#define qglProgramUniformMatrix4fvEXT       GLDSA_ProgramUniformMatrix4fvEXT
+#define qglNamedRenderbufferStorageEXT      GLDSA_NamedRenderbufferStorageEXT
+#define qglNamedRenderbufferStorageMultisampleEXT GLDSA_NamedRenderbufferStorageMultisampleEXT
+#define qglCheckNamedFramebufferStatusEXT   GLDSA_CheckNamedFramebufferStatusEXT
+#define qglNamedFramebufferTexture2DEXT     GLDSA_NamedFramebufferTexture2DEXT
+#define qglNamedFramebufferRenderbufferEXT  GLDSA_NamedFramebufferRenderbufferEXT
+
+// ---------------------------------------------------------------
+// Additional desktop GL enums needed for switch/case compilation.
+// These allow tr_image.c, tr_backend.c, etc. to compile unchanged.
+// At runtime, the GLES conversion switch remaps them before any
+// GL call, so these values are never passed to actual GL functions.
+// ---------------------------------------------------------------
+
+// Sized internal formats (used in switch/case, remapped to unsized GLES2 equivalents)
+#ifndef GL_LUMINANCE8
+#define GL_LUMINANCE8               0x8040
+#endif
+#ifndef GL_LUMINANCE8_ALPHA8
+#define GL_LUMINANCE8_ALPHA8        0x8045
+#endif
+#ifndef GL_RGB5
+#define GL_RGB5                     0x8050
+#endif
+#ifndef GL_RGB8
+#define GL_RGB8                     0x8051
+#endif
+#ifndef GL_RGBA8
+#define GL_RGBA8                    0x8058
+#endif
+#ifndef GL_RGBA4
+#define GL_RGBA4                    0x8056
+#endif
+
+// 16-bit RGBA (DDS/HDR paths -- remapped to GL_RGBA at runtime)
+#ifndef GL_RGBA16
+#define GL_RGBA16                   0x805B
+#endif
+
+// Float formats without _ARB suffix (used in R_ImageList_f display code)
+#ifndef GL_RGBA16F
+#define GL_RGBA16F                  0x881A
+#endif
+
+// Single-channel float (hdrDepth image -- will be remapped or skipped)
+#ifndef GL_R32F
+#define GL_R32F                     0x822E
+#endif
+
+// Depth formats
+#ifndef GL_DEPTH_COMPONENT32
+#define GL_DEPTH_COMPONENT32        0x81A7
+#endif
+
+// S3TC compressed format (legacy path, never selected on PS4)
+#ifndef GL_RGB4_S3TC
+#define GL_RGB4_S3TC                0x83A1
+#endif
+
+// S3TC/DXT compressed formats (never selected on PS4 -- textureCompression=0)
+#ifndef GL_COMPRESSED_RGBA_S3TC_DXT1_EXT
+#define GL_COMPRESSED_RGBA_S3TC_DXT1_EXT  0x83F1
+#endif
+#ifndef GL_COMPRESSED_RGBA_S3TC_DXT3_EXT
+#define GL_COMPRESSED_RGBA_S3TC_DXT3_EXT  0x83F2
+#endif
+#ifndef GL_COMPRESSED_RGBA_S3TC_DXT5_EXT
+#define GL_COMPRESSED_RGBA_S3TC_DXT5_EXT  0x83F3
+#endif
+#ifndef GL_COMPRESSED_RGB_S3TC_DXT1_EXT
+#define GL_COMPRESSED_RGB_S3TC_DXT1_EXT   0x83F0
+#endif
+
+// RGTC compressed format (never selected on PS4)
+#ifndef GL_COMPRESSED_RG_RGTC2
+#define GL_COMPRESSED_RG_RGTC2      0x8DBD
+#endif
+
+// BPTC compressed format (never selected on PS4)
+#ifndef GL_COMPRESSED_RGBA_BPTC_UNORM_ARB
+#define GL_COMPRESSED_RGBA_BPTC_UNORM_ARB 0x8E8C
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_ARB
+#define GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_ARB 0x8E8D
+#endif
+
+// Depth texture parameters (needed for shadow map setup)
+#ifndef GL_DEPTH_TEXTURE_MODE
+#define GL_DEPTH_TEXTURE_MODE       0x884B
+#endif
+#ifndef GL_TEXTURE_COMPARE_MODE
+#define GL_TEXTURE_COMPARE_MODE     0x884C
+#endif
+#ifndef GL_TEXTURE_COMPARE_FUNC
+#define GL_TEXTURE_COMPARE_FUNC     0x884D
+#endif
+#ifndef GL_COMPARE_R_TO_TEXTURE
+#define GL_COMPARE_R_TO_TEXTURE     0x884E
+#endif
+
+// Cubemap R-axis wrapping (GLES3/desktop; needed for cubemap texture setup)
+#ifndef GL_TEXTURE_WRAP_R
+#define GL_TEXTURE_WRAP_R           0x8072
+#endif
+
+// Anisotropic filtering (may or may not be in Piglet headers)
+#ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
+#endif
+#ifndef GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
+#endif
+
+// Shader/VAO query enums (used by debug functions like DrawNormals)
+#ifndef GL_CURRENT_PROGRAM
+#define GL_CURRENT_PROGRAM          0x8B8D
+#endif
+#ifndef GL_VERTEX_ARRAY_BINDING
+#define GL_VERTEX_ARRAY_BINDING     0x85B5
+#endif
+
+// Depth clamp (guarded by glRefConfig.depthClamp at runtime)
+#ifndef GL_DEPTH_CLAMP
+#define GL_DEPTH_CLAMP              0x864F
+#endif
+
+// Clip distance (desktop GL, not GLES2)
+#ifndef GL_CLIP_DISTANCE0
+#define GL_CLIP_DISTANCE0           0x3000
+#endif
+
+// Multisample (guarded by glRefConfig at runtime)
+#ifndef GL_MULTISAMPLE
+#define GL_MULTISAMPLE              0x809D
+#endif
+#ifndef GL_SAMPLE_ALPHA_TO_COVERAGE
+#define GL_SAMPLE_ALPHA_TO_COVERAGE 0x809E
+#endif
+
+#else /* !__ORBIS__ - Standard desktop path */
+
+#define GLE(ret, name, ...) typedef ret APIENTRY name##proc(__VA_ARGS__);
+QGL_1_1_PROCS;
+QGL_1_1_FIXED_FUNCTION_PROCS;
+QGL_DESKTOP_1_1_PROCS;
+QGL_DESKTOP_1_1_FIXED_FUNCTION_PROCS;
+QGL_ES_1_1_PROCS;
+QGL_ES_1_1_FIXED_FUNCTION_PROCS;
+QGL_1_3_PROCS;
+QGL_1_5_PROCS;
+QGL_2_0_PROCS;
+QGL_3_0_PROCS;
+QGL_ARB_occlusion_query_PROCS;
+QGL_ARB_framebuffer_object_PROCS;
+QGL_ARB_vertex_array_object_PROCS;
+QGL_EXT_direct_state_access_PROCS;
+#undef GLE
+
+#endif /* __ORBIS__ */
+
+extern int qglMajorVersion, qglMinorVersion;
+extern int qglesMajorVersion, qglesMinorVersion;
+#define QGL_VERSION_ATLEAST( major, minor ) ( qglMajorVersion > major || ( qglMajorVersion == major && qglMinorVersion >= minor ) )
+#define QGLES_VERSION_ATLEAST( major, minor ) ( qglesMajorVersion > major || ( qglesMajorVersion == major && qglesMinorVersion >= minor ) )
+
+#endif

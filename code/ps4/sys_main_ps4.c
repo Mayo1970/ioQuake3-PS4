@@ -236,6 +236,21 @@ int main(int argc, char **argv)
 	if (!strstr(commandLine, "+set fs_homepath"))
 		PS4_ADDARG(commandLine, sizeof(commandLine), "+set fs_homepath /data/ioq3");
 
+	// Default player name = PSN username (16 chars + NUL)
+	if (!strstr(commandLine, "+set name") && !strstr(commandLine, "+seta name")) {
+		OrbisUserServiceUserId userId = -1;
+		sceUserServiceGetInitialUser(&userId);
+		if (userId >= 0) {
+			char psName[ORBIS_USER_SERVICE_MAX_USER_NAME_LENGTH + 1];
+			memset(psName, 0, sizeof(psName));
+			if (sceUserServiceGetUserName(userId, psName, sizeof(psName)) == 0 && psName[0]) {
+				char nameArg[64];
+				snprintf(nameArg, sizeof(nameArg), "+seta name \"%s\"", psName);
+				PS4_ADDARG(commandLine, sizeof(commandLine), nameArg);
+			}
+		}
+	}
+
 	// Force GLES-friendly settings
 	if (!strstr(commandLine, "+set r_preferOpenGLES"))
 		PS4_ADDARG(commandLine, sizeof(commandLine), "+set r_preferOpenGLES 1");

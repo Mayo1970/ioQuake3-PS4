@@ -42,15 +42,6 @@ Install the [.NET SDK](https://dotnet.microsoft.com/download) and ensure
 
 ### 5. Runtime modules (required, not included)
 
-These Sony proprietary modules must be obtained separately and placed in `sce_module/`:
-
-| File |
-|---|
-| `libScePigletv2VSH.sprx` |
-| `libSceShaccVSH.sprx` |
-
----
-
 ## Building
 
 ```bash
@@ -59,7 +50,9 @@ make debug    # Debug build   (writes /data/ioq3/ioquake3log.txt)
 make clean    # Remove all build artifacts
 ```
 
-> **Note:** Run `make clean` before switching between release and debug builds.
+Release and debug builds use separate object directories
+(`build/obj/release/` and `build/obj/debug/`), so switching between them
+does **not** require `make clean`.
 
 **Output:** `IV0000-BREW00003_00-IOQ3PS4PORT00000.pkg`
 
@@ -67,10 +60,11 @@ make clean    # Remove all build artifacts
 
 ## PS4 directory layout
 
-```
-/app0/
-└── eboot.bin                ← installed by the pkg
+**You need the original Quake III Arena data files** (`pak0.pk3` through
+`pak8.pk3`). On Steam these are at
+`steamapps/common/Quake 3 Arena/baseq3/`
 
+```
 /data/ioq3/
 ├── baseq3/
 │   ├── pak0.pk3             ← Quake III Arena retail data
@@ -78,15 +72,13 @@ make clean    # Remove all build artifacts
 │   ├── ...
 │   └── pak8.pk3
 └── ioquake3log.txt          ← written only in debug builds
-
+```
+**You'll also need to extract the OpenGL module libScePigletv2VSH.sprx and the shader compiler module libSceShaccVSH.sprx from RetroArch_PS4_r4.pkg. You can search and find this package online.**
+```
 /data/self/system/common/lib/
 ├── libScePigletv2VSH.sprx   ← FTP here
 └── libSceShaccVSH.sprx      ← FTP here
 ```
-
-**You need the original Quake III Arena data files** (`pak0.pk3` through
-`pak8.pk3`). On Steam these are at
-`steamapps/common/Quake 3 Arena/baseq3/`.
 
 ---
 
@@ -112,6 +104,25 @@ Dual-stick FPS layout. Buttons are rebindable from the in-game options menu.
 | **R3** | Scoreboard |
 | **Touchpad** | Scoreboard |
 | **Options** | Menu (Escape) |
+| **L3 + R3** | Toggle aim mode (stick ↔ touchpad aim) |
+
+#### Aim mode
+
+`L3 + R3` toggles between two aiming styles. The lightbar shows which is active:
+
+| Lightbar | Mode | Look input |
+|---|---|---|
+| **Blue** (default) | Stick aim | Right stick |
+| **Cyan** | Touchpad aim | Swipe a finger across the touchpad |
+
+In touchpad aim, lifting your finger resets the anchor so the next touch
+doesn't jump. Sensitivity is set by the cvars `ps4_aimSensX` / `ps4_aimSensY`
+(default `0.5` each, archived).
+
+#### Player name
+
+The default player name is taken from your PSN profile on first launch
+(via `sceUserServiceGetUserName`). To override, change it from `q3config.cfg`.
 
 #### Text input (on-screen keyboard)
 

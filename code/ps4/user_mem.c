@@ -31,9 +31,12 @@ int malloc_init(void)
 	if (s_mspace)
 		return 0;
 
-	/* ioq3 needs ~176MB minimum (128MB hunk + 48MB zone).
-	 * Start at 256MB, fall back to smaller. */
+	/* ioq3 needs 256MB hunk + 48MB zone + Piglet overhead ~ 320MB minimum.
+	 * Start at 512MB, fall back progressively. */
 	static const size_t try_sizes[] = {
+		0x20000000ULL, /*  512 MB */
+		0x18000000ULL, /*  384 MB */
+		0x14000000ULL, /*  320 MB */
 		0x10000000ULL, /*  256 MB */
 		0x0C000000ULL, /*  192 MB */
 		0x08000000ULL, /*  128 MB */

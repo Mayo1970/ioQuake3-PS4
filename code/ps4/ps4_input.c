@@ -98,6 +98,16 @@ static int   ds4_axis_prev[4];           /* LX LY RX RY last sent value */
 static float ds4_cursor_x = 0.0f;
 static float ds4_cursor_y = 0.0f;
 
+/* Touchpad aim mode (toggle: L3+R3). s_touchPrev*: -1 = no contact. */
+static int   s_aimMode    = 0;
+static float s_aimAccumX  = 0.0f;
+static float s_aimAccumY  = 0.0f;
+static float s_touchPrevX = -1.0f;
+static float s_touchPrevY = -1.0f;
+
+static cvar_t *ps4_aimSensX = NULL;
+static cvar_t *ps4_aimSensY = NULL;
+
 static int s_frameCount  = 0;            /* diagnostic frame counter */
 static int s_initDone    = 0;
 
@@ -248,6 +258,10 @@ void IN_Init(void *windowData)
     PS4_SetDefaultBind(K_JOY10,"JOY10", "+scores");     /* R3       = scoreboard  */
     PS4_SetDefaultBind(K_JOY11,"JOY11", "+scores");     /* Touchpad = scoreboard  */
 
+    /* Touchpad aim sensitivity (multiplier on raw pixel deltas). */
+    ps4_aimSensX = Cvar_Get("ps4_aimSensX", "0.5", CVAR_ARCHIVE);
+    ps4_aimSensY = Cvar_Get("ps4_aimSensY", "0.5", CVAR_ARCHIVE);
+
     /* Enable joystick axis mode for twin-stick FPS movement / camera */
     Cbuf_AddText("seta in_joystick 1\n");
     Cvar_Set("in_joystick",          "1");
@@ -290,8 +304,19 @@ void IN_Init(void *windowData)
     memset(ds4_axis_prev, 0, sizeof(ds4_axis_prev));
     ds4_cursor_x = 0.0f;
     ds4_cursor_y = 0.0f;
+    s_aimMode    = 0;
+    s_aimAccumX  = 0.0f;
+    s_aimAccumY  = 0.0f;
+    s_touchPrevX = -1.0f;
+    s_touchPrevY = -1.0f;
     s_frameCount = 0;
     s_initDone   = 1;
+
+    /* Lightbar blue = stick aim (default). */
+    {
+        OrbisPadColor col = { 0, 0, 255, 0 };
+        scePadSetLightBar(s_padHandle, &col);
+    }
 
     Com_Printf("PS4 Input: DualShock 4 ready (handle %d, user %d)\n",
                s_padHandle, s_userId);
@@ -341,6 +366,35 @@ void IN_Frame(void)
     int catchers = Key_GetCatcher();
     int in_menu  = (catchers & (KEYCATCH_UI | KEYCATCH_CGAME))         ? 1 : 0;
     int in_text  = (catchers & (KEYCATCH_CONSOLE | KEYCATCH_MESSAGE))  ? 1 : 0;
+
+    /* L3+R3 edge-detected: toggle aim mode. Suppresses individual L3/R3
+     * events on the toggle frame so walk-toggle / scoreboard don't fire. */
+    {
+        int l3_cur  = ds4_btn_cur[BTN_IDX_L3];
+        int r3_cur  = ds4_btn_cur[BTN_IDX_R3];
+        int l3_prev = ds4_btn_prev[BTN_IDX_L3];
+        int r3_prev = ds4_btn_prev[BTN_IDX_R3];
+
+        int combo_edge = (l3_cur && r3_cur) && !(l3_prev && r3_prev);
+        if (combo_edge) {
+            s_aimMode   = !s_aimMode;
+            s_aimAccumX = 0.0f;
+            s_aimAccumY = 0.0f;
+            s_touchPrevX = -1.0f;
+            s_touchPrevY = -1.0f;
+            if (s_aimMode) {
+                Com_Printf("Aim mode: TOUCHPAD\n");
+                OrbisPadColor col = { 0, 255, 255, 0 }; /* cyan */
+                scePadSetLightBar(s_padHandle, &col);
+            } else {
+                Com_Printf("Aim mode: STICK\n");
+                OrbisPadColor col = { 0, 0, 255, 0 };   /* blue */
+                scePadSetLightBar(s_padHandle, &col);
+            }
+            ds4_btn_prev[BTN_IDX_L3] = l3_cur;
+            ds4_btn_prev[BTN_IDX_R3] = r3_cur;
+        }
+    }
 
     /* Touchpad combos (L1/R1 held as modifier, Touchpad as trigger):
      *   L1 + Touchpad -> console OSK (type and execute a command)
@@ -451,7 +505,7 @@ void IN_Frame(void)
                     Com_QueueEvent(0, SE_MOUSE, dx, dy, 0, NULL);
             }
         } else {
-            /* Gameplay: both sticks -> joystick axes.
+            /* Normal gameplay: both sticks -> joystick axes.
              * Scale ±(128-deadzone) to ±32512 for Q3's short axis range. */
             int jlx = lx * 256;
             int jly = ly * 256;
@@ -476,6 +530,35 @@ void IN_Frame(void)
                 ds4_axis_prev[3] = jry;
             }
         }
+    }
+
+    /* Touchpad aim (active only in aim mode and during gameplay). */
+    if (s_aimMode && !in_menu && !in_text) {
+        const OrbisPadTouchData *td = &s_padData.touch;
+        if (td->fingers > 0) {
+            float cx = (float)td->touch[0].x;
+            float cy = (float)td->touch[0].y;
+            if (s_touchPrevX >= 0.0f) {
+                /* Accumulate fractional deltas to preserve sub-pixel motion. */
+                s_aimAccumX += (cx - s_touchPrevX) * ps4_aimSensX->value;
+                s_aimAccumY += (cy - s_touchPrevY) * ps4_aimSensY->value;
+                int dx = (int)s_aimAccumX;
+                int dy = (int)s_aimAccumY;
+                s_aimAccumX -= (float)dx;
+                s_aimAccumY -= (float)dy;
+                if (dx != 0 || dy != 0)
+                    Com_QueueEvent(0, SE_MOUSE, dx, dy, 0, NULL);
+            }
+            s_touchPrevX = cx;
+            s_touchPrevY = cy;
+        } else {
+            /* Finger lifted: reset anchor so next touch doesn't jump. */
+            s_touchPrevX = -1.0f;
+            s_touchPrevY = -1.0f;
+        }
+    } else {
+        s_touchPrevX = -1.0f;
+        s_touchPrevY = -1.0f;
     }
 }
 

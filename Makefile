@@ -1,8 +1,5 @@
 # ============================================================================
-# ioQuake3 PS4 Port - Makefile
-#
-# Based on the OpenOrbis sample Makefile pattern.
-# Builds ioQuake3 for PS4 using Piglet (GLES2/EGL) for rendering.
+# ioQuake3 PS4 Port -- builds with the OpenOrbis toolchain and Piglet (GLES2).
 # ============================================================================
 
 # Package metadata
@@ -11,14 +8,12 @@ VERSION     := 1.00
 TITLE_ID    := BREW00003
 CONTENT_ID  := IV0000-BREW00003_00-IOQ3PS4PORT00000
 
-# OpenOrbis toolchain root (set OO_PS4_TOOLCHAIN environment variable)
-# Convert backslashes to forward slashes for MSYS2/bash compatibility
+# OpenOrbis toolchain root, normalized for MSYS2/bash.
 TOOLCHAIN   := $(subst \,/,$(OO_PS4_TOOLCHAIN))
 
-# Debug build support
-#   make           -- release build (no log file written at runtime)
-#   make DEBUG=1   -- debug build   (writes /data/ioq3/ioquake3log.txt)
-# Separate object directories mean switching modes never needs 'make clean'.
+# make            -- release (no runtime log)
+# make DEBUG=1    -- debug   (writes /data/ioq3/ioquake3log.txt)
+# Separate object dirs make switching modes safe without `make clean`.
 DEBUG ?= 0
 
 # Output directories
@@ -47,12 +42,10 @@ ifeq ($(UNAME_S),Darwin)
     LD      := /usr/local/opt/llvm/bin/ld.lld
     CDIR    := macos
 endif
-# Windows (MSYS2, Git Bash, or similar)
-# MSYS2 uname returns "MSYS_NT-*", Git Bash returns "MINGW64_NT-*", etc.
+# Windows (MSYS2 -> "MSYS_NT-*", Git Bash -> "MINGW64_NT-*", etc.)
 ifneq (,$(findstring NT,$(UNAME_S)))
     CDIR    := windows
-    # If clang is not on PATH, inject the default Windows LLVM install location.
-    # The space in "Program Files" is fine as a colon-delimited PATH component.
+    # Fall back to the default LLVM install if clang isn't on PATH.
     ifeq ($(shell which clang 2>/dev/null),)
         _LLVM_TRY := $(shell ls -d "/c/Program Files/LLVM/bin" 2>/dev/null || \
                               ls -d "/c/LLVM/bin" 2>/dev/null || echo "")
@@ -82,15 +75,10 @@ endif
 # PS4 compilation flags
 # ============================================================================
 
-# Target: x86_64 PS4 ELF (Sony SCE PS4 triple)
-# SM64 PS4 port uses this triple and it works on retail FW 9.00.
-# The FreeBSD triple (x86_64-pc-freebsd12-elf) produces binaries where
-# eglGetDisplay fails -- possibly due to different dynamic symbol resolution.
+# Sony SCE PS4 triple. The FreeBSD triple links but eglGetDisplay fails on it.
 TARGET      := --target=x86_64-scei-ps4-elf
 
-# PS4 platform defines
-# NOTE: Features disabled by NOT defining them (not =0), because the
-# codebase uses #ifdef (presence check), not #if (value check).
+# Disabled features are left undefined (code uses #ifdef, not #if).
 DEFINES     := -D__ORBIS__ -D__PS4__ \
                -DBOTLIB \
                -DUSE_INTERNAL_JPEG=1 \
@@ -112,11 +100,10 @@ CFLAGS      := $(TARGET) -fPIC -funwind-tables -fexceptions \
                -Icode/thirdparty/zlib-1.3.1 \
                -c
 
-# Suppress warnings that will be noisy during initial port
 CFLAGS      += -Wno-unused-variable -Wno-unused-function \
                -Wno-incompatible-pointer-types -Wno-int-conversion
 
-# crt1.o placed before -L/-l (SM64 link order: objects, crt1.o, then libs)
+# crt1.o is placed before -L/-l: link order is objects, crt1, then libs.
 LDFLAGS     := -m elf_x86_64 -pie \
                --script $(TOOLCHAIN)/link.x \
                --eh-frame-hdr \
@@ -127,12 +114,9 @@ LDFLAGS     := -m elf_x86_64 -pie \
 # Libraries
 # ============================================================================
 
-# Core PS4 libraries
-# IMPORTANT: Using -lSceLibcInternal -lScePosix instead of -lc -lc++
-# SM64 PS4 port (which works on retail FW 9.00) uses Sony's internal libc,
-# NOT the OpenOrbis musl-based libc.prx. Piglet internally depends on
-# SceLibcInternal; using musl causes eglGetDisplay to fail silently.
-# This also means libc.prx must NOT be in sce_module/.
+# Link against Sony's SceLibcInternal, NOT the OpenOrbis musl libc.prx:
+# Piglet depends on SceLibcInternal, and using musl makes eglGetDisplay
+# fail silently. libc.prx must therefore NOT be present in sce_module/.
 LIBS        := -lkernel -lSceLibcInternal -lScePosix \
                -lScePigletv2VSH \
                -lSceSysmodule \
@@ -413,14 +397,18 @@ debug:
 $(CONTENT_ID).pkg: pkg.gp4
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core pkg_build $< .
 
-# GP4 project file
-# SM64 PS4 port has ZERO files in sce_module/. Match that exactly.
-# No libc.prx (using SceLibcInternal), no libSceFios2.prx.
-pkg.gp4: eboot.bin sce_sys/param.sfo sce_sys/icon0.png
-	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files "eboot.bin sce_sys/param.sfo sce_sys/icon0.png"
+# GP4 project file. sce_module/ is intentionally empty: no libc.prx
+# (we use SceLibcInternal) and no libSceFios2.prx.
+ifeq ($(DEBUG),1)
+    PKG_ICON := sce_sys/icon1.png
+else
+    PKG_ICON := sce_sys/icon0.png
+endif
 
-# System parameter file
-# Match SM64 PS4 param.sfo exactly
+pkg.gp4: eboot.bin sce_sys/param.sfo $(PKG_ICON)
+	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files "eboot.bin sce_sys/param.sfo $(PKG_ICON)"
+
+# System parameter file.
 sce_sys/param.sfo: Makefile
 	@mkdir -p sce_sys
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core sfo_new $@
@@ -445,7 +433,6 @@ eboot.bin: $(OUTDIR)/ioq3_ps4.elf
 # Link ELF
 $(OUTDIR)/ioq3_ps4.elf: $(ALL_OBJS)
 	@mkdir -p $(OUTDIR)
-# SM64's crt1.o is in LDFLAGS (before -L/-l), matching SM64 link order.
 	$(LD) $^ -o $@ $(LDFLAGS) $(LIBS)
 
 # Compile C sources

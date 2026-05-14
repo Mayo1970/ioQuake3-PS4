@@ -879,9 +879,8 @@ void Z_Free( void *ptr ) {
 
 	block = (memblock_t *) ( (byte *)ptr - sizeof(memblock_t));
 #ifdef __WIIU__
-	/* Detect out-of-zone pointers (includes CopyString statics in .data).
-	   On Wii U the zone occupies a specific malloc'd region; pointers outside
-	   it must not be freed through the zone allocator. */
+	/* Reject pointers that lie outside the zone (e.g. CopyString statics in
+	   .data); freeing them through the zone allocator would corrupt it. */
 	{
 		qboolean inMain = (mainzone != NULL &&
 			(byte*)ptr >= (byte*)mainzone &&

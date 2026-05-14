@@ -15,33 +15,27 @@ extern int   Key_GetCatcher(void);
 extern void  Key_SetBinding(int keynum, const char *binding);
 extern char *Key_GetBinding(int keynum);
 
-/* Only bind if not already bound (preserves q3config.cfg overrides) */
+/* Bind only if currently unbound, so q3config.cfg overrides win. */
 static void PS4_SetDefaultBind(int keynum, const char *keyname, const char *binding)
 {
     char *existing = Key_GetBinding(keynum);
     if (!existing || !existing[0]) {
         Key_SetBinding(keynum, binding);
-        /* Force it into command buffer so it saves to config */
         Cbuf_AddText(va("bind %s \"%s\"\n", keyname, binding));
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Constants                                                            */
-/* ------------------------------------------------------------------ */
-
 #define STICK_CENTER    128
 #define STICK_DEADZONE  30
-#define STICK_RANGE     (128 - STICK_DEADZONE)  /* effective half-range */
+#define STICK_RANGE     (128 - STICK_DEADZONE)
 
-#define MENU_CURSOR_SPEED 5.0f   /* pixels per frame at full deflection */
+#define MENU_CURSOR_SPEED 5.0f
 
-#define TRIGGER_THRESHOLD 30     /* analogButtons.l2/r2 threshold (0-255) */
+#define TRIGGER_THRESHOLD 30    /* analog L2/R2 threshold (0-255) */
 
-/* Number of logical buttons tracked (14 digital + 2 analog triggers) */
-#define NUM_DS4_BUTTONS 16
+#define NUM_DS4_BUTTONS 16      /* 14 digital + 2 analog triggers */
 
-/* Button indices into ds4_btn_cur[] / ds4_btn_prev[] */
+
 #define BTN_IDX_CROSS      0
 #define BTN_IDX_CIRCLE     1
 #define BTN_IDX_SQUARE     2
@@ -79,14 +73,11 @@ static const int ds4_key_map[NUM_DS4_BUTTONS] = {
     K_JOY8,       /* 15: R2 analog -> fire         */
 };
 
-/* ------------------------------------------------------------------ */
-/* State                                                               */
-/* ------------------------------------------------------------------ */
-
 static int          s_padHandle  = -1;
 static int          s_userId     = -1;
 
-/* Add padding to prevent stack/bss corruption if FW 9.00 PadData is larger than the header struct */
+/* Over-sized buffer guards against FW 9.00 OrbisPadData being larger than
+ * the header struct (scePadReadState writes past the declared end). */
 static union {
     OrbisPadData data;
     uint8_t pad[256];
@@ -94,26 +85,26 @@ static union {
 #define s_padData (s_padDataBuf.data)
 
 static int   ds4_btn_prev[NUM_DS4_BUTTONS];
-static int   ds4_axis_prev[4];           /* LX LY RX RY last sent value */
+static int   ds4_axis_prev[4];           /* last sent LX LY RX RY */
 static float ds4_cursor_x = 0.0f;
 static float ds4_cursor_y = 0.0f;
 
-/* Touchpad aim mode (toggle: L3+R3). s_touchPrev*: -1 = no contact. */
+/* Aim mode: 0=stick, 1=touchpad, 2=gyro. s_touchPrev* = -1 means no contact. */
 static int   s_aimMode    = 0;
 static float s_aimAccumX  = 0.0f;
 static float s_aimAccumY  = 0.0f;
 static float s_touchPrevX = -1.0f;
 static float s_touchPrevY = -1.0f;
 
-static cvar_t *ps4_aimSensX = NULL;
-static cvar_t *ps4_aimSensY = NULL;
+static cvar_t *ps4_aimSensX    = NULL;
+static cvar_t *ps4_aimSensY    = NULL;
+static cvar_t *ps4_gyroSensYaw = NULL;
+static cvar_t *ps4_gyroSensPitch = NULL;
 
-static int s_frameCount  = 0;            /* diagnostic frame counter */
+static int s_frameCount  = 0;
 static int s_initDone    = 0;
 
-/* ------------------------------------------------------------------ */
-/* Read button states into flat array (matches OpenOrbis controller.cpp)
- * ------------------------------------------------------------------ */
+/* Decode pad button bitmask and analog triggers into the flat indexed array. */
 static void DS4_ReadButtons(const OrbisPadData *pd, int out[NUM_DS4_BUTTONS])
 {
     uint32_t b = pd->buttons;
@@ -133,17 +124,14 @@ static void DS4_ReadButtons(const OrbisPadData *pd, int out[NUM_DS4_BUTTONS])
     out[BTN_IDX_DPAD_LEFT]  = (b & ORBIS_PAD_BUTTON_LEFT)      ? 1 : 0;
     out[BTN_IDX_DPAD_RIGHT] = (b & ORBIS_PAD_BUTTON_RIGHT)     ? 1 : 0;
 
-    /* Trigger: digital bit OR analog pressure above threshold */
+    /* Trigger pressed = digital bit OR analog pressure past threshold. */
     out[BTN_IDX_L2_ANALOG] = ((b & ORBIS_PAD_BUTTON_L2) ||
                                pd->analogButtons.l2 > TRIGGER_THRESHOLD) ? 1 : 0;
     out[BTN_IDX_R2_ANALOG] = ((b & ORBIS_PAD_BUTTON_R2) ||
                                pd->analogButtons.r2 > TRIGGER_THRESHOLD) ? 1 : 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* PS4_ShowOSK (internal helper)                                       */
-/* Returns qtrue if the user confirmed with non-empty text.            */
-/* ------------------------------------------------------------------ */
+/* Show the system IME keyboard; returns qtrue if confirmed with non-empty text. */
 static qboolean PS4_ShowOSK(const wchar_t *title, int maxLen,
                              wchar_t *buf, int bufLen)
 {
@@ -187,8 +175,7 @@ static qboolean PS4_ShowOSK(const wchar_t *title, int maxLen,
     return confirmed;
 }
 
-/* Converts a wchar_t OSK result to a plain ASCII C string. Non-ASCII
- * characters are replaced with '?' so the engine command parser is safe. */
+/* Convert OSK wchar output to ASCII; non-ASCII becomes '?'. */
 static void PS4_WcharToASCII(const wchar_t *src, char *dst, int dstLen)
 {
     int i;
@@ -197,10 +184,7 @@ static void PS4_WcharToASCII(const wchar_t *src, char *dst, int dstLen)
     dst[i] = '\0';
 }
 
-/* ------------------------------------------------------------------ */
-/* PS4_ShowConsoleOSK                                                  */
-/* L1 + Touchpad: open OSK, execute typed text as a console command.  */
-/* ------------------------------------------------------------------ */
+/* L1+Touchpad: prompt for a console command and execute it. */
 static void PS4_ShowConsoleOSK(void)
 {
     static wchar_t s_inputBuf[256];
@@ -215,10 +199,7 @@ static void PS4_ShowConsoleOSK(void)
     Cbuf_AddText(va("%s\n", cmd));
 }
 
-/* ------------------------------------------------------------------ */
-/* PS4_ShowChatOSK                                                     */
-/* R1 + Touchpad: open OSK, send typed text as an in-game chat msg.   */
-/* ------------------------------------------------------------------ */
+/* R1+Touchpad: prompt for chat text and send it via `say`. */
 static void PS4_ShowChatOSK(void)
 {
     static wchar_t s_inputBuf[128];
@@ -235,9 +216,6 @@ static void PS4_ShowChatOSK(void)
     Cbuf_AddText(va("say %s\n", msg));
 }
 
-/* ------------------------------------------------------------------ */
-/* IN_Init                                                             */
-/* ------------------------------------------------------------------ */
 void IN_Init(void *windowData)
 {
     int rc;
@@ -245,7 +223,6 @@ void IN_Init(void *windowData)
 
     Com_Printf("PS4 Input: Initializing DualShock 4...\n");
 
-    /* Default gameplay binds (preserved if already in q3config.cfg) */
     PS4_SetDefaultBind(K_JOY1, "JOY1", "+moveup");      /* Cross    = jump        */
     PS4_SetDefaultBind(K_JOY2, "JOY2", "+movedown");    /* Circle   = crouch      */
     PS4_SetDefaultBind(K_JOY3, "JOY3", "weapprev");     /* Square   = prev weapon */
@@ -258,38 +235,31 @@ void IN_Init(void *windowData)
     PS4_SetDefaultBind(K_JOY10,"JOY10", "+scores");     /* R3       = scoreboard  */
     PS4_SetDefaultBind(K_JOY11,"JOY11", "+scores");     /* Touchpad = scoreboard  */
 
-    /* Touchpad aim sensitivity (multiplier on raw pixel deltas). */
     ps4_aimSensX = Cvar_Get("ps4_aimSensX", "0.5", CVAR_ARCHIVE);
     ps4_aimSensY = Cvar_Get("ps4_aimSensY", "0.5", CVAR_ARCHIVE);
+    ps4_gyroSensYaw   = Cvar_Get("ps4_gyroSensYaw",   "5.0", CVAR_ARCHIVE);
+    ps4_gyroSensPitch = Cvar_Get("ps4_gyroSensPitch", "5.0", CVAR_ARCHIVE);
 
-    /* Enable joystick axis mode for twin-stick FPS movement / camera */
     Cbuf_AddText("seta in_joystick 1\n");
     Cvar_Set("in_joystick",          "1");
     Cvar_Set("in_joystickUseAnalog", "1");
-    Cvar_Set("j_side_axis",          "0");   /* left stick X  -> strafe  */
-    Cvar_Set("j_forward_axis",       "1");   /* left stick Y  -> forward */
-    Cvar_Set("j_pitch_axis",         "3");   /* right stick Y -> pitch   */
-    Cvar_Set("j_yaw_axis",           "4");   /* right stick X -> yaw     */
+    Cvar_Set("j_side_axis",          "0");
+    Cvar_Set("j_forward_axis",       "1");
+    Cvar_Set("j_pitch_axis",         "3");
+    Cvar_Set("j_yaw_axis",           "4");
     Cvar_Set("j_pitch",              "0.022");
     Cvar_Set("j_yaw",               "-0.020"); /* negative = non-inverted */
     Cvar_Set("j_forward",           "-0.25");
     Cvar_Set("j_side",               "0.25");
 
-    /* scePadInit: OpenOrbis sample checks != 0 (not just negative) */
     rc = scePadInit();
     if (rc != 0) {
         Com_Printf("WARNING: scePadInit returned 0x%08X (may already be init'd)\n", rc);
-        /* Continue anyway -- may already be initialized by system */
     }
 
-    /* Get the initial logged-in user */
-    {
-        sceUserServiceGetInitialUser(&s_userId);
-    }
-
+    sceUserServiceGetInitialUser(&s_userId);
     Com_Printf("PS4 Input: userId=%d (0x%08X)\n", s_userId, (unsigned)s_userId);
 
-    /* Open pad handle -- OpenOrbis sample uses type=0, index=0, param=NULL */
     s_padHandle = scePadOpen(s_userId, ORBIS_PAD_PORT_TYPE_STANDARD, 0, NULL);
     Com_Printf("PS4 Input: scePadOpen returned %d (0x%08X)\n",
                s_padHandle, (unsigned)s_padHandle);
@@ -312,7 +282,7 @@ void IN_Init(void *windowData)
     s_frameCount = 0;
     s_initDone   = 1;
 
-    /* Lightbar blue = stick aim (default). */
+    /* Lightbar blue: stick aim (default). */
     {
         OrbisPadColor col = { 0, 0, 255, 0 };
         scePadSetLightBar(s_padHandle, &col);
@@ -322,9 +292,6 @@ void IN_Init(void *windowData)
                s_padHandle, s_userId);
 }
 
-/* ------------------------------------------------------------------ */
-/* IN_Frame                                                            */
-/* ------------------------------------------------------------------ */
 void IN_Frame(void)
 {
     int ds4_btn_cur[NUM_DS4_BUTTONS];
@@ -334,7 +301,6 @@ void IN_Frame(void)
 
     s_frameCount++;
 
-    /* Read pad state */
     rc = scePadReadState(s_padHandle, &s_padData);
 
     if (rc != 0) {
@@ -347,7 +313,7 @@ void IN_Frame(void)
         }
     }
 
-    /* Log pad state on first frame only to confirm controller is alive */
+    /* First-frame diagnostic: confirms the pad is alive after init. */
     if (s_frameCount == 1) {
         Com_Printf("DS4: rc=%d connected=%d buttons=0x%08X "
                    "LX=%d LY=%d RX=%d RY=%d L2=%d R2=%d\n",
@@ -359,30 +325,34 @@ void IN_Frame(void)
                    (int)s_padData.analogButtons.r2);
     }
 
-    /* Process input regardless of connected field (OpenOrbis controller.cpp
-     * does not check connected -- just reads buttons directly). */
+    /* Read buttons regardless of `connected` -- the field is unreliable. */
     DS4_ReadButtons(&s_padData, ds4_btn_cur);
 
     int catchers = Key_GetCatcher();
     int in_menu  = (catchers & (KEYCATCH_UI | KEYCATCH_CGAME))         ? 1 : 0;
     int in_text  = (catchers & (KEYCATCH_CONSOLE | KEYCATCH_MESSAGE))  ? 1 : 0;
 
-    /* L3+R3 edge-detected: toggle aim mode. Suppresses individual L3/R3
-     * events on the toggle frame so walk-toggle / scoreboard don't fire. */
+    /* Touchpad combos, edge-detected on Touchpad press. The modifier and the
+     * Touchpad button are both marked seen so neither fires a key event:
+     *   L3+Touchpad -> toggle touchpad aim (cyan)
+     *   R3+Touchpad -> toggle gyro aim     (green)
+     *   L1+Touchpad -> console OSK
+     *   R1+Touchpad -> chat OSK */
     {
-        int l3_cur  = ds4_btn_cur[BTN_IDX_L3];
-        int r3_cur  = ds4_btn_cur[BTN_IDX_R3];
-        int l3_prev = ds4_btn_prev[BTN_IDX_L3];
-        int r3_prev = ds4_btn_prev[BTN_IDX_R3];
+        int l3_held        = ds4_btn_cur[BTN_IDX_L3];
+        int r3_held        = ds4_btn_cur[BTN_IDX_R3];
+        int l1_held        = ds4_btn_cur[BTN_IDX_L1];
+        int r1_held        = ds4_btn_cur[BTN_IDX_R1];
+        int touchpad_press = ds4_btn_cur[BTN_IDX_TOUCHPAD] &&
+                             !ds4_btn_prev[BTN_IDX_TOUCHPAD];
 
-        int combo_edge = (l3_cur && r3_cur) && !(l3_prev && r3_prev);
-        if (combo_edge) {
-            s_aimMode   = !s_aimMode;
-            s_aimAccumX = 0.0f;
-            s_aimAccumY = 0.0f;
+        if (touchpad_press && l3_held) {
+            s_aimMode    = (s_aimMode == 1) ? 0 : 1;
+            s_aimAccumX  = 0.0f;
+            s_aimAccumY  = 0.0f;
             s_touchPrevX = -1.0f;
             s_touchPrevY = -1.0f;
-            if (s_aimMode) {
+            if (s_aimMode == 1) {
                 Com_Printf("Aim mode: TOUCHPAD\n");
                 OrbisPadColor col = { 0, 255, 255, 0 }; /* cyan */
                 scePadSetLightBar(s_padHandle, &col);
@@ -391,21 +361,29 @@ void IN_Frame(void)
                 OrbisPadColor col = { 0, 0, 255, 0 };   /* blue */
                 scePadSetLightBar(s_padHandle, &col);
             }
-            ds4_btn_prev[BTN_IDX_L3] = l3_cur;
-            ds4_btn_prev[BTN_IDX_R3] = r3_cur;
+            ds4_btn_prev[BTN_IDX_L3]      = l3_held;
+            ds4_btn_prev[BTN_IDX_TOUCHPAD] = 1;
+            goto done_combos;
         }
-    }
-
-    /* Touchpad combos (L1/R1 held as modifier, Touchpad as trigger):
-     *   L1 + Touchpad -> console OSK (type and execute a command)
-     *   R1 + Touchpad -> chat OSK    (type and send a chat message)
-     * L1 takes priority if both are held simultaneously. */
-    {
-        int l1_held        = ds4_btn_cur[BTN_IDX_L1];
-        int r1_held        = ds4_btn_cur[BTN_IDX_R1];
-        int touchpad_press = ds4_btn_cur[BTN_IDX_TOUCHPAD] &&
-                             !ds4_btn_prev[BTN_IDX_TOUCHPAD];
-
+        if (touchpad_press && r3_held) {
+            s_aimMode    = (s_aimMode == 2) ? 0 : 2;
+            s_aimAccumX  = 0.0f;
+            s_aimAccumY  = 0.0f;
+            s_touchPrevX = -1.0f;
+            s_touchPrevY = -1.0f;
+            if (s_aimMode == 2) {
+                Com_Printf("Aim mode: GYRO\n");
+                OrbisPadColor col = { 0, 255, 0, 0 }; /* green */
+                scePadSetLightBar(s_padHandle, &col);
+            } else {
+                Com_Printf("Aim mode: STICK\n");
+                OrbisPadColor col = { 0, 0, 255, 0 }; /* blue */
+                scePadSetLightBar(s_padHandle, &col);
+            }
+            ds4_btn_prev[BTN_IDX_R3]      = r3_held;
+            ds4_btn_prev[BTN_IDX_TOUCHPAD] = 1;
+            goto done_combos;
+        }
         if (touchpad_press && l1_held) {
             ds4_btn_prev[BTN_IDX_TOUCHPAD] = 1;
             PS4_ShowConsoleOSK();
@@ -421,8 +399,9 @@ void IN_Frame(void)
             return;
         }
     }
+    done_combos:;
 
-    /* Options + Touchpad = toggle console */
+    /* Options+Touchpad: toggle the console overlay. */
     {
         int options_held   = ds4_btn_cur[BTN_IDX_OPTIONS];
         int touchpad_press = ds4_btn_cur[BTN_IDX_TOUCHPAD] &&
@@ -433,29 +412,24 @@ void IN_Frame(void)
             Com_QueueEvent(0, SE_KEY, K_CONSOLE, qtrue,  0, NULL);
             Com_QueueEvent(0, SE_KEY, K_CONSOLE, qfalse, 0, NULL);
             combo_consumed = 1;
-            /* Mark both as "seen" so they don't fire their individual keys */
             ds4_btn_prev[BTN_IDX_OPTIONS]  = ds4_btn_cur[BTN_IDX_OPTIONS];
             ds4_btn_prev[BTN_IDX_TOUCHPAD] = ds4_btn_cur[BTN_IDX_TOUCHPAD];
         }
 
-        /* Digital button edge detection */
         for (i = 0; i < NUM_DS4_BUTTONS; i++) {
             int cur  = ds4_btn_cur[i];
             int prev = ds4_btn_prev[i];
 
             if (cur == prev) continue;
 
-            /* Suppress individual keys consumed by the combo above */
             if (combo_consumed && (i == BTN_IDX_OPTIONS || i == BTN_IDX_TOUCHPAD))
                 goto next_btn;
 
             Com_QueueEvent(0, SE_KEY, ds4_key_map[i], cur ? qtrue : qfalse, 0, NULL);
 
-            /* Cross in menu also sends K_ENTER for UI navigation */
+            /* In menus, Cross also drives Enter and Circle drives Escape. */
             if (i == BTN_IDX_CROSS && in_menu)
                 Com_QueueEvent(0, SE_KEY, K_ENTER, cur ? qtrue : qfalse, 0, NULL);
-
-            /* Circle in menu also sends K_ESCAPE for back navigation */
             if (i == BTN_IDX_CIRCLE && in_menu)
                 Com_QueueEvent(0, SE_KEY, K_ESCAPE, cur ? qtrue : qfalse, 0, NULL);
 
@@ -464,7 +438,7 @@ void IN_Frame(void)
         }
     }
 
-    /* ---- Analog sticks ---- */
+    /* Analog sticks. */
     {
         int lx = (int)s_padData.leftStick.x  - STICK_CENTER;
         int ly = (int)s_padData.leftStick.y  - STICK_CENTER;
@@ -477,7 +451,7 @@ void IN_Frame(void)
         if (ry > -STICK_DEADZONE && ry < STICK_DEADZONE) ry = 0;
 
         if (in_menu || in_text) {
-            /* Left stick navigates menu cursor */
+            /* Left stick drives the menu cursor. */
             if (lx != 0 || ly != 0) {
                 float fx = (float)lx / (float)STICK_RANGE;
                 float fy = (float)ly / (float)STICK_RANGE;
@@ -487,7 +461,7 @@ void IN_Frame(void)
                 if (fy >  1.0f) fy =  1.0f;
                 if (fy < -1.0f) fy = -1.0f;
 
-                /* Squared response for fine control at small deflections */
+                /* Squared response: finer control near center. */
                 float ax = fx * fx * MENU_CURSOR_SPEED;
                 float ay = fy * fy * MENU_CURSOR_SPEED;
                 if (fx < 0.0f) ax = -ax;
@@ -505,14 +479,12 @@ void IN_Frame(void)
                     Com_QueueEvent(0, SE_MOUSE, dx, dy, 0, NULL);
             }
         } else {
-            /* Normal gameplay: both sticks -> joystick axes.
-             * Scale ±(128-deadzone) to ±32512 for Q3's short axis range. */
+            /* Gameplay: scale ±(128-deadzone) to Q3's ±32512 short axis range. */
             int jlx = lx * 256;
             int jly = ly * 256;
             int jrx = rx * 256;
             int jry = ry * 256;
 
-            /* Send only on change to avoid flooding the queue */
             if (jlx != ds4_axis_prev[0]) {
                 Com_QueueEvent(0, SE_JOYSTICK_AXIS, 0, jlx, 0, NULL);
                 ds4_axis_prev[0] = jlx;
@@ -532,27 +504,43 @@ void IN_Frame(void)
         }
     }
 
-    /* Touchpad aim (active only in aim mode and during gameplay). */
-    if (s_aimMode && !in_menu && !in_text) {
-        const OrbisPadTouchData *td = &s_padData.touch;
-        if (td->fingers > 0) {
-            float cx = (float)td->touch[0].x;
-            float cy = (float)td->touch[0].y;
-            if (s_touchPrevX >= 0.0f) {
-                /* Accumulate fractional deltas to preserve sub-pixel motion. */
-                s_aimAccumX += (cx - s_touchPrevX) * ps4_aimSensX->value;
-                s_aimAccumY += (cy - s_touchPrevY) * ps4_aimSensY->value;
-                int dx = (int)s_aimAccumX;
-                int dy = (int)s_aimAccumY;
-                s_aimAccumX -= (float)dx;
-                s_aimAccumY -= (float)dy;
-                if (dx != 0 || dy != 0)
-                    Com_QueueEvent(0, SE_MOUSE, dx, dy, 0, NULL);
+    /* Aim modes (gameplay only). */
+    if (!in_menu && !in_text) {
+        if (s_aimMode == 1) {
+            /* Touchpad swipe deltas -> mouse motion. */
+            const OrbisPadTouchData *td = &s_padData.touch;
+            if (td->fingers > 0) {
+                float cx = (float)td->touch[0].x;
+                float cy = (float)td->touch[0].y;
+                if (s_touchPrevX >= 0.0f) {
+                    s_aimAccumX += (cx - s_touchPrevX) * ps4_aimSensX->value;
+                    s_aimAccumY += (cy - s_touchPrevY) * ps4_aimSensY->value;
+                    int dx = (int)s_aimAccumX;
+                    int dy = (int)s_aimAccumY;
+                    s_aimAccumX -= (float)dx;
+                    s_aimAccumY -= (float)dy;
+                    if (dx != 0 || dy != 0)
+                        Com_QueueEvent(0, SE_MOUSE, dx, dy, 0, NULL);
+                }
+                s_touchPrevX = cx;
+                s_touchPrevY = cy;
+            } else {
+                s_touchPrevX = -1.0f;
+                s_touchPrevY = -1.0f;
             }
-            s_touchPrevX = cx;
-            s_touchPrevY = cy;
+        } else if (s_aimMode == 2) {
+            /* Gyro: DS4 IMU angular velocity (rad/s) -> mouse motion.
+             * vel.y drives yaw, vel.x drives pitch. Fractional pixels are
+             * accumulated so slow motions are not lost to truncation. */
+            s_aimAccumX += s_padData.vel.y * ps4_gyroSensYaw->value;
+            s_aimAccumY += s_padData.vel.x * ps4_gyroSensPitch->value;
+            int dx = (int)s_aimAccumX;
+            int dy = (int)s_aimAccumY;
+            s_aimAccumX -= (float)dx;
+            s_aimAccumY -= (float)dy;
+            if (dx != 0 || dy != 0)
+                Com_QueueEvent(0, SE_MOUSE, dx, dy, 0, NULL);
         } else {
-            /* Finger lifted: reset anchor so next touch doesn't jump. */
             s_touchPrevX = -1.0f;
             s_touchPrevY = -1.0f;
         }
@@ -562,9 +550,6 @@ void IN_Frame(void)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* IN_Shutdown / IN_Restart                                            */
-/* ------------------------------------------------------------------ */
 void IN_Shutdown(void)
 {
     if (s_padHandle >= 0) {

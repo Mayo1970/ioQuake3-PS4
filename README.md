@@ -71,6 +71,11 @@ does **not** require `make clean`.
 │   ├── pak1.pk3
 │   ├── ...
 │   └── pak8.pk3
+├── missionpack/             ← optional, for Team Arena (see "Mods" below)
+│   ├── pak0.pk3
+│   ├── pak1.pk3
+│   ├── pak2.pk3
+│   └── pak3.pk3
 └── ioquake3log.txt          ← written only in debug builds
 ```
 **You'll also need to extract the OpenGL module libScePigletv2VSH.sprx and the shader compiler module libSceShaccVSH.sprx from RetroArch_PS4_r4.pkg. You can search and find this package online.**
@@ -104,20 +109,31 @@ Dual-stick FPS layout. Buttons are rebindable from the in-game options menu.
 | **R3** | Scoreboard |
 | **Touchpad** | Scoreboard |
 | **Options** | Menu (Escape) |
-| **L3 + R3** | Toggle aim mode (stick ↔ touchpad aim) |
+| **L3 + Touchpad** | Toggle touchpad aim |
+| **R3 + Touchpad** | Toggle gyro aim *(experimental)* |
 
-#### Aim mode
+#### Aim modes
 
-`L3 + R3` toggles between two aiming styles. The lightbar shows which is active:
+Two alternative aiming styles can be toggled at runtime via touchpad combos.
+The lightbar colour shows which mode is active:
 
 | Lightbar | Mode | Look input |
 |---|---|---|
 | **Blue** (default) | Stick aim | Right stick |
 | **Cyan** | Touchpad aim | Swipe a finger across the touchpad |
+| **Green** | Gyro aim *(experimental)* | Tilt the controller (DualShock 4 IMU) |
 
 In touchpad aim, lifting your finger resets the anchor so the next touch
-doesn't jump. Sensitivity is set by the cvars `ps4_aimSensX` / `ps4_aimSensY`
-(default `0.5` each, archived).
+doesn't jump. Sensitivity is set via:
+
+- Touchpad: cvars `ps4_aimSensX` / `ps4_aimSensY` (default `0.5` each).
+- Gyro: cvars `ps4_gyroSensYaw` / `ps4_gyroSensPitch` (default `5.0` each).
+
+All four are archived to `q3config.cfg`.
+
+> **Gyro aim is experimental.** It works but still needs polish: the response
+> curve, default sensitivities, and dead-zone behavior may not feel right yet,
+> and it has not been tuned against competitive map flow. Feedback welcome.
 
 #### Player name
 
@@ -144,12 +160,49 @@ The default player name is taken from your PSN profile on first launch
 
 ---
 
+## Mods
+
+Mod switching works on hardware: the engine tears down and rebuilds the EGL
+surface and GL context cleanly when `fs_game` changes, so any mod that ships
+as a `.pk3` set under `/data/ioq3/<modname>/` is playable. Launch with:
+
+```
+/set fs_game <modname>
+/vid_restart
+```
+
+from the in-game console (Options + Touchpad).
+
+#### Team Arena
+
+The official mission pack runs as `fs_game missionpack`. Drop the four
+mission-pack paks into `/data/ioq3/missionpack/`:
+
+```
+/data/ioq3/missionpack/
+├── pak0.pk3
+├── pak1.pk3
+├── pak2.pk3
+└── pak3.pk3
+```
+
+The Steam build of Team Arena ships only `pak0`; the point-release files
+are present in a normal **ioquake3 install** under `missionpack/` -- source
+them there and FTP them onto the PS4.
+
+---
+
 ## Technical notes
 
 - **Renderer:** renderergl2 (programmable pipeline). GLES 2.0 via Piglet.
   Fixed-function GL1 calls do not exist in GLES 2, so renderergl1 is not used.
-- **Shaders:** compiled at runtime via `libSceShaccVSH.sprx` as GLSL ES 1.00
-  (`#version 100`). ~62 variants compile in ~16 seconds on first boot.
+- **Shaders:** compiled at runtime as GLSL ES 1.00 (`#version 100`) via
+  `libSceShaccVSH.sprx`. ~62 variants compile in ~16 seconds on first boot.
+  This follows the approach taken by RetroArch's PS4 build: the Piglet GLES2
+  runtime and the ShaccVSH compiler module are loaded from
+  `/data/self/system/common/lib/` -- both modules are extracted from
+  `RetroArch_PS4_r4.pkg` and dropped into place via FTP. They are devkit-only
+  components that are not present on retail FW 9.00 out of the box.
 - **Shadow maps:** depth-only FBOs return `GL_FRAMEBUFFER_UNSUPPORTED` on
   Piglet. Shadow mapping is effectively disabled; the engine falls back to
   no-shadow rendering gracefully.

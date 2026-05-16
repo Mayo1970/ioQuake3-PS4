@@ -708,11 +708,19 @@ CL_InitCGame
 Should only be called by CL_StartHunkUsers
 ====================
 */
+/*
+====================
+CL_InitCGame
+
+Should only be called by CL_StartHunkUsers
+====================
+*/
 void CL_InitCGame( void ) {
 	const char			*info;
 	const char			*mapname;
 	int					t1, t2;
 	vmInterpret_t		interpret;
+	char				autoexecPath[MAX_QPATH];
 
 	t1 = Sys_Milliseconds();
 
@@ -767,6 +775,20 @@ void CL_InitCGame( void ) {
 
 	// clear anything that got printed
 	Con_ClearNotify ();
+
+	// ======================================================
+	// NEW CODE: Execute map-specific autoexec config
+	// ======================================================
+	// Check if there's a map-specific autoexec file (autoexec_<mapname>.cfg)
+	// This can be in a PK3 file or on disk
+	Com_sprintf( autoexecPath, sizeof(autoexecPath), "autoexec_%s.cfg", mapname );
+	
+	// Check if the file exists (FS_ReadFile returns >0 if found)
+	if ( FS_ReadFile( autoexecPath, NULL ) > 0 ) {
+		Cbuf_AddText( va("exec %s\n", autoexecPath) );
+		Com_Printf( S_COLOR_YELLOW "Auto-executing map config: %s\n", autoexecPath );
+	}
+	// ======================================================
 }
 
 

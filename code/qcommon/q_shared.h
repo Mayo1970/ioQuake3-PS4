@@ -26,7 +26,38 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // q_shared.h -- included first by ALL program modules.
 // A user mod should never modify this file
 
-#ifdef STANDALONE
+#ifdef STANDALONEOA
+  #define PRODUCT_NAME              "ioq3+oa"
+  #define BASEGAME                  "baseoa"
+  #define CLIENT_WINDOW_TITLE       "OpenArena"
+  #define CLIENT_WINDOW_MIN_TITLE   "OA"
+  #define HOMEPATH_NAME_UNIX_LEGACY ".openarena"
+  #define HOMEPATH_NAME							"Quake3"
+  #define GAMENAME_FOR_MASTER       "Quake3Arena"	// must NOT contain whitespace.  No servers show up if you use "openarena"
+	#define LEGACY_PROTOCOL           1 // OA still uses the legacy protocol
+	#define CINEMATICS_LOGO		"idlogo.RoQ"
+	#define PROTOCOL_HANDLER		"quake3"
+	#define CONFIG_PREFIX			"q3config"
+
+#elif STANDALONETA
+  #define PRODUCT_NAME              "ioq3+ta"
+  // BASEGAME stays baseq3: Team Arena is a mod that LAYERS on top of baseq3
+  // paks, not a standalone game. The STANDALONETA pkg auto-injects
+  // "+set fs_game missionpack" at startup (see sys_main_ps4.c) so the engine
+  // boots straight into TA. Requires BOTH /data/ioq3/baseq3/ AND
+  // /data/ioq3/missionpack/ on the PS4.
+  #define BASEGAME                  "baseq3"
+  #define CLIENT_WINDOW_TITLE       "TeamArena"
+  #define CLIENT_WINDOW_MIN_TITLE   "TA"
+  #define HOMEPATH_NAME_UNIX_LEGACY ".teamarena"
+  #define HOMEPATH_NAME							"Quake3"
+  #define GAMENAME_FOR_MASTER       "Quake3Arena"	// must NOT contain whitespace.  No servers show up if you use "openarena"
+	#define LEGACY_PROTOCOL           1 // OA still uses the legacy protocol
+  #define CINEMATICS_LOGO		"idlogo.RoQ"
+  #define PROTOCOL_HANDLER		"quake3"
+  #define CONFIG_PREFIX			"q3config"
+
+#elif STANDALONE
   #define PRODUCT_NAME				"iofoo3"
   #define BASEGAME					"foobar"
   #define CLIENT_WINDOW_TITLE		"changeme"

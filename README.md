@@ -44,17 +44,34 @@ Install the [.NET SDK](https://dotnet.microsoft.com/download) and ensure
 
 ## Building
 
+Three pkg variants are produced from the same source tree:
+
 ```bash
-make          # Release build (no log file)
-make debug    # Debug build   (writes /data/ioq3/ioquake3log.txt)
-make clean    # Remove all build artifacts
+make                  # ioQuake 3        (BASEGAME=baseq3,  TITLE_ID=QUAK03000)
+make -f Makefile.oa   # Open Arena       (BASEGAME=baseoa,  TITLE_ID=QUAK03002)
+make -f Makefile.ta   # Team Arena       (BASEGAME=baseq3 + auto fs_game=missionpack,
+                      #                   TITLE_ID=QUAK03001)
+make debug            # Debug build of ioQuake 3 (writes /data/ioq3/ioquake3log.txt)
+make clean            # Remove all build artifacts
 ```
 
-Release and debug builds use separate object directories
-(`build/obj/release/` and `build/obj/debug/`), so switching between them
-does **not** require `make clean`.
+Each variant uses its own object directory (`build/obj/release[/oa/ta]`,
+`build/obj/debug`), so switching builds never requires `make clean`. Release
+and debug binaries can coexist.
 
-**Output:** `IV0000-BREW00003_00-IOQ3PS4PORT00000.pkg`
+> **Build one variant at a time.** Chaining all three back-to-back has
+> produced broken pkgs on hardware. Always fully clean
+> (`rm -rf build eboot.bin pkg.gp4 sce_sys/param.sfo IV0000-QUAK*.pkg`)
+> between variants and install/test each one before moving on.
+
+**Output:** `IV0000-QUAK03000_00-IOQ3PS4PORT00000.pkg` (and `QUAK03001` /
+`QUAK03002` for TA / OA).
+
+Team Arena is a mod that layers on top of `baseq3`, not a standalone game --
+the TA pkg auto-injects `+set fs_game missionpack` at boot, so both
+`baseq3/` *and* `missionpack/` paks must be present on the PS4 (see the
+"Mods" section below). Open Arena is a true standalone and only needs its
+own `baseoa/` paks.
 
 ---
 
@@ -111,6 +128,7 @@ Dual-stick FPS layout. Buttons are rebindable from the in-game options menu.
 | **Options** | Menu (Escape) |
 | **L3 + Touchpad** | Toggle touchpad aim |
 | **R3 + Touchpad** | Toggle gyro aim *(experimental)* |
+| **L3 + R3** (no Touchpad) | Toggle rumble on/off |
 
 #### Aim modes
 
@@ -134,6 +152,16 @@ All four are archived to `q3config.cfg`.
 > **Gyro aim is experimental.** It works but still needs polish: the response
 > curve, default sensitivities, and dead-zone behavior may not feel right yet,
 > and it has not been tuned against competitive map flow. Feedback welcome.
+
+#### Rumble
+
+DualShock 4 rumble is enabled by default. It triggers only for events tied to
+the local player: own weapon fire (per-weapon strength), own pain, and hit
+feedback. Toggle on/off at runtime with **L3 + R3** (a short ack pulse plays
+on enable). Configurable via:
+
+- `ps4_rumbleEnable` (default `1`) -- master on/off, archived to `q3config.cfg`.
+- `ps4_rumbleScale` (default `1.0`, range `0.0`-`1.0`) -- global intensity.
 
 #### Player name
 
@@ -175,8 +203,10 @@ from the in-game console (Options + Touchpad).
 
 #### Team Arena
 
-The official mission pack runs as `fs_game missionpack`. Drop the four
-mission-pack paks into `/data/ioq3/missionpack/`:
+Available either as a dedicated pkg (`make -f Makefile.ta`, which auto-sets
+`fs_game missionpack` at boot) or by running it as a mod from the ioQuake 3
+pkg. Either way it needs the four mission-pack paks in
+`/data/ioq3/missionpack/`:
 
 ```
 /data/ioq3/missionpack/
@@ -188,7 +218,26 @@ mission-pack paks into `/data/ioq3/missionpack/`:
 
 The Steam build of Team Arena ships only `pak0`; the point-release files
 are present in a normal **ioquake3 install** under `missionpack/` -- source
-them there and FTP them onto the PS4.
+them there and FTP them onto the PS4. Dummy / empty paks do not work --
+the QVM validates checksums.
+
+The TA pkg keeps `BASEGAME=baseq3` and layers `missionpack` on top, so
+**both** `/data/ioq3/baseq3/` and `/data/ioq3/missionpack/` must be present
+even when launching from the TA pkg.
+
+#### Open Arena
+
+A standalone pkg (`make -f Makefile.oa`) is provided for the free
+[OpenArena](https://openarena.ws/) content. Drop the OA paks into
+`/data/ioq3/baseoa/`:
+
+```
+/data/ioq3/baseoa/
+├── pak0-pak6.pk3
+└── ...
+```
+
+OA is a true standalone -- it does not require `baseq3/` to be present.
 
 ---
 

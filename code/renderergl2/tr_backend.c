@@ -751,6 +751,11 @@ void RE_UploadCinematic (int w, int h, int cols, int rows, const byte *data, int
 		tr.scratchImage[client]->width = tr.scratchImage[client]->uploadWidth = cols;
 		tr.scratchImage[client]->height = tr.scratchImage[client]->uploadHeight = rows;
 
+#ifdef __ORBIS__
+		/* Piglet accepts GL_RGBA uploads directly — skip the per-frame
+		   RGBA->RGB CPU conversion that the generic GLES2 branch does. */
+		qglTextureImage2DEXT(texture, GL_TEXTURE_2D, 0, GL_RGBA, cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+#else
 		if ( qglesMajorVersion >= 1 ) {
 			buffer = ri.Hunk_AllocateTempMemory( 3 * cols * rows );
 
@@ -761,6 +766,7 @@ void RE_UploadCinematic (int w, int h, int cols, int rows, const byte *data, int
 		} else {
 			qglTextureImage2DEXT(texture, GL_TEXTURE_2D, 0, GL_RGB8, cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 		}
+#endif
 
 		qglTextureParameterfEXT(texture, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		qglTextureParameterfEXT(texture, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
@@ -770,6 +776,9 @@ void RE_UploadCinematic (int w, int h, int cols, int rows, const byte *data, int
 		if (dirty) {
 			// otherwise, just subimage upload it so that drivers can tell we are going to be changing
 			// it and don't try and do a texture compression
+#ifdef __ORBIS__
+			qglTextureSubImage2DEXT(texture, GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data);
+#else
 			if ( qglesMajorVersion >= 1 ) {
 				buffer = ri.Hunk_AllocateTempMemory( 3 * cols * rows );
 
@@ -780,6 +789,7 @@ void RE_UploadCinematic (int w, int h, int cols, int rows, const byte *data, int
 			} else {
 				qglTextureSubImage2DEXT(texture, GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data);
 			}
+#endif
 		}
 	}
 }

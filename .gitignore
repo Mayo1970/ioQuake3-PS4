@@ -19,8 +19,9 @@ test.gp4
 *.o
 !ps4_crt1.o
 
-# Generated metadata (rebuilt by Makefile)
+# Generated metadata (rebuilt by Makefile from icons/<variant>/icon0.png)
 sce_sys/param.sfo
+sce_sys/icon0.png
 
 # PS4 proprietary modules - NOT redistributable (Sony IP)
 # libSceShaccVSH.sprx is the runtime GLSL compiler (devkit-only, not on retail FW)

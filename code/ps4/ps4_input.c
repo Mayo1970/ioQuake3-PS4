@@ -76,8 +76,7 @@ static const int ds4_key_map[NUM_DS4_BUTTONS] = {
 static int          s_padHandle  = -1;
 static int          s_userId     = -1;
 
-/* Over-sized buffer guards against FW 9.00 OrbisPadData being larger than
- * the header struct (scePadReadState writes past the declared end). */
+/* Oversize: FW 9.00 scePadReadState writes past the declared struct end. */
 static union {
     OrbisPadData data;
     uint8_t pad[256];
@@ -100,6 +99,50 @@ static cvar_t *ps4_aimSensX    = NULL;
 static cvar_t *ps4_aimSensY    = NULL;
 static cvar_t *ps4_gyroSensYaw = NULL;
 static cvar_t *ps4_gyroSensPitch = NULL;
+static cvar_t *ps4_rumbleEnable = NULL;
+static cvar_t *ps4_rumbleScale  = NULL;
+
+/* Active rumble pulse: motors run until s_rumbleExpiryMs, then zeroed. */
+static int s_rumbleExpiryMs = 0;
+static int s_rumbleActive   = 0;
+
+/* Queue a rumble pulse. Overlapping pulses: strongest wins, no summing. */
+void PS4_SetRumble(uint8_t large, uint8_t small, int durationMs)
+{
+    if (s_padHandle < 0) return;
+    if (!ps4_rumbleEnable || !ps4_rumbleEnable->integer) return;
+
+    float scale = ps4_rumbleScale ? ps4_rumbleScale->value : 1.0f;
+    if (scale < 0.0f) scale = 0.0f;
+    if (scale > 1.0f) scale = 1.0f;
+
+    int lg = (int)(large * scale);
+    int sm = (int)(small * scale);
+    if (lg > 255) lg = 255;
+    if (sm > 255) sm = 255;
+
+    OrbisPadVibeParam v;
+    v.lgMotor = (uint8_t)lg;
+    v.smMotor = (uint8_t)sm;
+    scePadSetVibration(s_padHandle, &v);
+
+    int now    = Sys_Milliseconds();
+    int expiry = now + durationMs;
+    if (expiry > s_rumbleExpiryMs) s_rumbleExpiryMs = expiry;
+    s_rumbleActive = 1;
+}
+
+/* Stop motors once the pulse expires. */
+static void PS4_RumbleTick(void)
+{
+    if (!s_rumbleActive) return;
+    if (Sys_Milliseconds() < s_rumbleExpiryMs) return;
+
+    OrbisPadVibeParam v = { 0, 0 };
+    scePadSetVibration(s_padHandle, &v);
+    s_rumbleActive   = 0;
+    s_rumbleExpiryMs = 0;
+}
 
 static int s_frameCount  = 0;
 static int s_initDone    = 0;
@@ -239,6 +282,8 @@ void IN_Init(void *windowData)
     ps4_aimSensY = Cvar_Get("ps4_aimSensY", "0.5", CVAR_ARCHIVE);
     ps4_gyroSensYaw   = Cvar_Get("ps4_gyroSensYaw",   "5.0", CVAR_ARCHIVE);
     ps4_gyroSensPitch = Cvar_Get("ps4_gyroSensPitch", "5.0", CVAR_ARCHIVE);
+    ps4_rumbleEnable  = Cvar_Get("ps4_rumbleEnable",  "1",   CVAR_ARCHIVE);
+    ps4_rumbleScale   = Cvar_Get("ps4_rumbleScale",   "1.0", CVAR_ARCHIVE);
 
     Cbuf_AddText("seta in_joystick 1\n");
     Cvar_Set("in_joystick",          "1");
@@ -325,6 +370,8 @@ void IN_Frame(void)
                    (int)s_padData.analogButtons.r2);
     }
 
+    PS4_RumbleTick();
+
     /* Read buttons regardless of `connected` -- the field is unreliable. */
     DS4_ReadButtons(&s_padData, ds4_btn_cur);
 
@@ -332,12 +379,8 @@ void IN_Frame(void)
     int in_menu  = (catchers & (KEYCATCH_UI | KEYCATCH_CGAME))         ? 1 : 0;
     int in_text  = (catchers & (KEYCATCH_CONSOLE | KEYCATCH_MESSAGE))  ? 1 : 0;
 
-    /* Touchpad combos, edge-detected on Touchpad press. The modifier and the
-     * Touchpad button are both marked seen so neither fires a key event:
-     *   L3+Touchpad -> toggle touchpad aim (cyan)
-     *   R3+Touchpad -> toggle gyro aim     (green)
-     *   L1+Touchpad -> console OSK
-     *   R1+Touchpad -> chat OSK */
+    /* Touchpad combos (edge on Touchpad press; both keys marked seen):
+     *   L3 -> toggle touchpad aim, R3 -> gyro, L1 -> console OSK, R1 -> chat OSK */
     {
         int l3_held        = ds4_btn_cur[BTN_IDX_L3];
         int r3_held        = ds4_btn_cur[BTN_IDX_R3];
@@ -397,6 +440,25 @@ void IN_Frame(void)
             DS4_ReadButtons(&s_padData, ds4_btn_cur);
             memcpy(ds4_btn_prev, ds4_btn_cur, sizeof(ds4_btn_prev));
             return;
+        }
+
+        /* L3+R3 (no touchpad): toggle rumble. Edge-detected. */
+        if (l3_held && r3_held &&
+            (!ds4_btn_prev[BTN_IDX_L3] || !ds4_btn_prev[BTN_IDX_R3])) {
+            int on = ps4_rumbleEnable ? !ps4_rumbleEnable->integer : 1;
+            Cvar_SetValue("ps4_rumbleEnable", on ? 1.0f : 0.0f);
+            Com_Printf("Rumble: %s\n", on ? "ON" : "OFF");
+            if (on) {
+                PS4_SetRumble(200, 200, 200); /* tactile ack */
+            } else {
+                OrbisPadVibeParam stop = { 0, 0 };
+                scePadSetVibration(s_padHandle, &stop);
+                s_rumbleActive   = 0;
+                s_rumbleExpiryMs = 0;
+            }
+            ds4_btn_prev[BTN_IDX_L3] = 1;
+            ds4_btn_prev[BTN_IDX_R3] = 1;
+            goto done_combos;
         }
     }
     done_combos:;
@@ -529,9 +591,7 @@ void IN_Frame(void)
                 s_touchPrevY = -1.0f;
             }
         } else if (s_aimMode == 2) {
-            /* Gyro: DS4 IMU angular velocity (rad/s) -> mouse motion.
-             * vel.y drives yaw, vel.x drives pitch. Fractional pixels are
-             * accumulated so slow motions are not lost to truncation. */
+            /* Gyro: vel.y -> yaw, vel.x -> pitch. Fractional accum avoids truncation. */
             s_aimAccumX += s_padData.vel.y * ps4_gyroSensYaw->value;
             s_aimAccumY += s_padData.vel.x * ps4_gyroSensPitch->value;
             int dx = (int)s_aimAccumX;
@@ -553,9 +613,13 @@ void IN_Frame(void)
 void IN_Shutdown(void)
 {
     if (s_padHandle >= 0) {
+        OrbisPadVibeParam v = { 0, 0 };
+        scePadSetVibration(s_padHandle, &v);
         scePadClose(s_padHandle);
         s_padHandle = -1;
     }
+    s_rumbleActive   = 0;
+    s_rumbleExpiryMs = 0;
     s_initDone = 0;
 }
 

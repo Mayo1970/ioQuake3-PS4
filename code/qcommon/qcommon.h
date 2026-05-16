@@ -245,7 +245,6 @@ PROTOCOL
 */
 
 #define	PROTOCOL_VERSION	71
-#define PROTOCOL_LEGACY_VERSION	68
 // 1.31 - 67
 
 // maintain a list of compatible protocols for demo playing
@@ -261,8 +260,15 @@ extern int demo_protocols[];
 #endif
 
 #ifndef STANDALONE
+  #ifdef STANDALONEOA
+    #define AUTHORIZE_SERVER_NAME	"dpmaster.deathmask.net"
+    #define PROTOCOL_LEGACY_VERSION	71
+  #endif
   #ifndef AUTHORIZE_SERVER_NAME
     #define	AUTHORIZE_SERVER_NAME	"authorize.quake3arena.com"
+  #endif
+  #ifndef PROTOCOL_LEGACY_VERSION
+    #define PROTOCOL_LEGACY_VERSION	68
   #endif
   #ifndef PORT_AUTHORIZE
   #define	PORT_AUTHORIZE		27952

@@ -1,13 +1,4 @@
-/*
- * net_ps4.c - PS4 networking initialization
- *
- * PS4's FreeBSD kernel supports BSD sockets. The core socket code in
- * qcommon/net_ip.c should work with minimal changes. This file handles
- * PS4-specific network initialization (sceNet, sceNetCtl).
- *
- * For now this is a stub. The actual socket code in net_ip.c will be
- * compiled with appropriate POSIX headers from the OpenOrbis toolchain.
- */
+/* net_ps4.c -- sceNet/sceNetCtl init; BSD socket code lives in qcommon/net_ip.c. */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -20,31 +11,24 @@
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qcommon.h"
 
-#define NET_HEAP_SIZE (256 * 1024)  // 256KB -- sceNet needs room for socket send buffers
+#define NET_HEAP_SIZE (256 * 1024)  /* sceNet socket send buffers */
 
 static int s_netMemId = -1;
 static void *s_netMemory = NULL;
 
-// Cached network info (populated in PS4_NetInit after sceNetCtlInit).
-static uint32_t s_localIP        = 0;   // host byte order
+static uint32_t s_localIP        = 0;            /* host byte order */
 static uint32_t s_subnetMask     = 0xFFFFFF00;
-static uint32_t s_subnetBcast    = 0;   // network byte order, ready for sendto
+static uint32_t s_subnetBcast    = 0;            /* network byte order */
 
-/*
- * PS4_NetInit
- *
- * Called from NET_Init to set up PS4-specific networking.
- * Must be called before any socket operations.
- */
+/* Must run before any socket calls. */
 void PS4_NetInit(void)
 {
 	int ret;
 
 	Com_Printf("PS4 Net: Initializing...\n");
 
-	// Initialize the network library
 	ret = sceNetInit();
-	if (ret < 0 && ret != (int)0x80410004) { // ignore "already initialized"
+	if (ret < 0 && ret != (int)0x80410004) { /* ALREADY_INIT */
 		Com_Printf("WARNING: sceNetInit failed: 0x%08X\n", ret);
 		return;
 	}
@@ -57,13 +41,11 @@ void PS4_NetInit(void)
 		s_netMemId = ret;
 	}
 
-	// Initialize network control (for connection status, etc.)
 	ret = sceNetCtlInit();
-	if (ret < 0 && ret != (int)0x80412102) { // ignore "already initialized"
+	if (ret < 0 && ret != (int)0x80412102) { /* ALREADY_INIT */
 		Com_Printf("WARNING: sceNetCtlInit failed: 0x%08X\n", ret);
 	}
 
-	// Query local IP and netmask now that sceNetCtlInit has completed.
 	{
 		OrbisNetCtlInfo info;
 		struct in_addr addr;
@@ -90,17 +72,13 @@ void PS4_NetInit(void)
 	Com_Printf("PS4 Net: Initialized\n");
 }
 
-/*
- * PS4_NetShutdown
- */
 void PS4_NetShutdown(void)
 {
 	sceNetCtlTerm();
 	sceNetTerm();
 }
 
-/* Accessors for net_ip.c (cached values populated in PS4_NetInit). */
-
+/* Accessors for net_ip.c. */
 uint32_t PS4_GetLocalIP(void)       { return s_localIP; }
 uint32_t PS4_GetSubnetMask(void)    { return s_subnetMask; }
 uint32_t PS4_GetSubnetBroadcast(void) { return s_subnetBcast; }

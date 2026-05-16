@@ -25,9 +25,7 @@ static int s_pigletModuleId  = -1;
 static int s_shaccModuleId   = -1;
 static qboolean s_pigletConfigured = qfalse;
 
-/* Load Piglet (GLES2) and ShaccVSH (runtime GLSL compiler) sprx modules.
- * Tries /data/self/system/common/lib/ first (RetroArch PS4 install location),
- * then the sandbox random-word path, then /app0/sce_module/ as a last resort. */
+/* Try /data/self/.../lib, sandbox path, then /app0/sce_module/. */
 static qboolean PS4_LoadPigletModules(void)
 {
 	s_pigletModuleId = sceKernelLoadStartModule(
@@ -78,7 +76,6 @@ static qboolean PS4_LoadPigletModules(void)
 	return qtrue;
 }
 
-/* Initialize Piglet, EGL, and create the GLES2 rendering context. */
 void GLimp_Init(qboolean fixedFunction)
 {
 	EGLint major, minor;
@@ -99,8 +96,12 @@ void GLimp_Init(qboolean fixedFunction)
 	ri.Cvar_Set("cg_shadows", "0");
 	ri.Cvar_Set("r_sunShadows", "0");
 
-	/* Module loading and scePigletSetConfigurationVSH are one-time per process;
-	 * calling them again on vid_restart/mod switch crashes. */
+#ifdef STANDALONEOA
+	/* OA default ui_browserMaster=0 wedges Favorites on a never-completing query. */
+	ri.Cvar_Set("ui_browserMaster", "1");
+#endif
+
+	/* One-time per process; re-calling on vid_restart/mod switch crashes. */
 	if (!s_pigletConfigured) {
 		if (!PS4_LoadPigletModules()) {
 			Com_Error(ERR_FATAL, "GLimp_Init: Failed to load Piglet modules");
@@ -138,8 +139,7 @@ void GLimp_Init(qboolean fixedFunction)
 		Com_Printf("PS4 GL: reusing existing Piglet instance (mod/vid restart)\n");
 	}
 
-	/* EGL display is kept alive across vid_restart/mod switch (eglTerminate
-	 * cannot be followed by a working eglInitialize on Piglet). */
+	/* Display kept alive across restarts: eglTerminate breaks Piglet re-init. */
 	if (s_display == EGL_NO_DISPLAY) {
 		Com_Printf("Calling eglGetDisplay(EGL_DEFAULT_DISPLAY)...\n");
 		s_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -165,8 +165,7 @@ void GLimp_Init(qboolean fixedFunction)
 		return;
 	}
 
-	/* Depth/stencil 0: renderergl2 uses FBOs for its own depth/stencil.
-	 * Requesting 24/8 has no matching Piglet EGL config. */
+	/* Depth/stencil 0: renderergl2 uses FBOs; no Piglet config matches 24/8. */
 	EGLint config_attribs[] = {
 		EGL_RED_SIZE, 8,
 		EGL_GREEN_SIZE, 8,
@@ -185,8 +184,7 @@ void GLimp_Init(qboolean fixedFunction)
 		return;
 	}
 
-	/* Piglet's EGLNativeWindowType is a 16-byte { id, w, h, pad } block.
-	 * Any other layout (e.g. 3-int) freezes eglSwapBuffers. */
+	/* Piglet's EGLNativeWindowType is exactly this 16-byte layout. */
 	static struct { uint32_t id; uint32_t w; uint32_t h; uint32_t pad; } s_render_window;
 	s_render_window.id = 0;
 	s_render_window.w = width;
@@ -279,8 +277,7 @@ void GLimp_Shutdown(void)
 			s_surface = EGL_NO_SURFACE;
 		}
 
-		/* eglTerminate is intentionally NOT called: Piglet cannot be
-		 * re-initialized within a process. s_display is reused by GLimp_Init. */
+		/* No eglTerminate: Piglet cannot be re-initialized in a process. */
 	}
 
 	Com_Printf("PS4 GL context shut down\n");

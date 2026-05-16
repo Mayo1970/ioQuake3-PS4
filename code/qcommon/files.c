@@ -32,6 +32,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "q_shared.h"
 #include "qcommon.h"
 #include "unzip.h"
+#include <errno.h>
 
 /*
 =============================================================================
@@ -567,8 +568,8 @@ qboolean FS_CreatePath (const char *OSPath) {
 			// create the directory
 			*ofs = 0;
 			if (!Sys_Mkdir (path)) {
-				Com_Error( ERR_FATAL, "FS_CreatePath: failed to create path \"%s\"",
-					path );
+				//Com_Error( ERR_FATAL, "FS_CreatePath: failed to create path \"%s\"",
+				//	path );
 			}
 			*ofs = PATH_SEP;
 		}
@@ -1341,9 +1342,18 @@ long FS_FOpenFileRead(const char *filename, fileHandle_t *file, qboolean uniqueF
 	isLocalConfig = !strcmp(filename, "autoexec.cfg") || !strcmp(filename, Q3CONFIG_CFG);
 	for(search = fs_searchpaths; search; search = search->next)
 	{
-		// autoexec.cfg and q3config.cfg can only be loaded outside of pk3 files.
-		if (isLocalConfig && search->pack)
-			continue;
+		// Only block the generic autoexec.cfg and q3config.cfg from pk3 files.
+    // Allow map-specific autoexec_*.cfg files to load from pk3.
+    if (isLocalConfig && search->pack)
+    {
+        // Check if this is a map-specific autoexec file (autoexec_*.cfg)
+        if (strstr(filename, "autoexec_") != filename || 
+            strcmp(filename + strlen(filename) - 4, ".cfg") != 0)
+        {
+            continue;  // Block only exact "autoexec.cfg" or "q3config.cfg"
+        }
+        // Allow autoexec_*.cfg files through
+    }
 
 		len = FS_FOpenFileReadDir(filename, search, file, uniqueFILE, qfalse);
 
@@ -3414,15 +3424,14 @@ static void FS_Startup( const char *gameName )
 		Com_Error( ERR_DROP, "Invalid fs_game '%s'", fs_gamedirvar->string );
 	}
 
-	// FS_CreatePath treats the last component as a filename, so it won't
-	// create the final directory. Call Sys_Mkdir to ensure the home
-	// directories exist before adding game directories.
 	FS_CreatePath(fs_homeconfigpath->string);
-	Sys_Mkdir(fs_homeconfigpath->string);
 	FS_CreatePath(fs_homedatapath->string);
-	Sys_Mkdir(fs_homedatapath->string);
 	FS_CreatePath(fs_homestatepath->string);
+#if defined(__ORBIS__) || defined(__PS4__)
+	Sys_Mkdir(fs_homeconfigpath->string);
+	Sys_Mkdir(fs_homedatapath->string);
 	Sys_Mkdir(fs_homestatepath->string);
+#endif
 
 	FS_AddGameDirectories(gameName);
 
@@ -4133,7 +4142,7 @@ void FS_InitFilesystem( void ) {
 	FS_Startup(com_basegame->string);
 
 #ifndef STANDALONE
-	FS_CheckPak0( );
+	//FS_CheckPak0( );
 #endif
 
 	// if we can't find default.cfg, assume that the paths are
@@ -4171,7 +4180,7 @@ void FS_Restart( int checksumFeed ) {
 	FS_Startup(com_basegame->string);
 
 #ifndef STANDALONE
-	FS_CheckPak0( );
+	//FS_CheckPak0( );
 #endif
 
 	// if we can't find default.cfg, assume that the paths are

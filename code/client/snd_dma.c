@@ -37,6 +37,11 @@ void S_Update_( void );
 void S_Base_StopAllSounds(void);
 void S_Base_StopBackgroundTrack( void );
 
+#ifdef __ORBIS__
+#include <stdint.h>
+extern void PS4_SetRumble(uint8_t large, uint8_t small, int durationMs);
+#endif
+
 snd_stream_t	*s_backgroundStream = NULL;
 static char		s_backgroundLoop[MAX_QPATH];
 //static char		s_backgroundMusic[MAX_QPATH]; //TTimo: unused
@@ -66,6 +71,52 @@ static vec3_t		listener_axis[3];
 
 int			s_soundtime;		// sample PAIRS
 int   		s_paintedtime; 		// sample PAIRS
+
+#ifdef __ORBIS__
+/* Maps a sfx played for the local player to a rumble pulse. Only three
+ * categories rumble: our own weapon fire, hit feedback (we damaged someone),
+ * and our own pain (we got hit). Anything else returns without rumbling. */
+static void PS4_RumbleForSfx(const char *name, int entityNum, qboolean localSound)
+{
+    if (!name || !name[0]) return;
+
+    /* Hit feedback: "sound/feedback/hit.wav", "hithi.wav", "hitlo.wav",
+     * "hit_teammate.wav". Always played as localSound by cgame. */
+    if (localSound && strstr(name, "feedback/hit")) {
+        PS4_SetRumble(80, 140, 90);
+        return;
+    }
+
+    /* Everything below is for sounds attached to OUR player entity. */
+    if (entityNum != listener_number) return;
+
+    /* Pain: "*painNN_1.wav" gets resolved to "sound/player/<model>/painNN_1.wav"
+     * by CG_CustomSound; the engine stores the resolved path. Match the
+     * "/pain" substring which catches every pain variant. */
+    if (strstr(name, "/pain")) {
+        PS4_SetRumble(200, 80, 180);
+        return;
+    }
+
+    /* Weapon fire: sounds under sound/weapons/, excluding impact/explode
+     * sounds that can also be parented to our entity. Per-weapon overrides
+     * before the generic fallback. */
+    if (!Q_stricmpn(name, "sound/weapons/", 14)) {
+        if (strstr(name, "impact") || strstr(name, "explod"))
+            return;
+        if (strstr(name, "/rocket/")) {
+            PS4_SetRumble(255, 220, 160); /* heavy thump on launch */
+            return;
+        }
+        if (strstr(name, "/shotgun/")) {
+            PS4_SetRumble(230, 200, 130); /* sharp boom */
+            return;
+        }
+        PS4_SetRumble(100, 160, 70);
+        return;
+    }
+}
+#endif
 
 // MAX_SFX may be larger than MAX_SOUNDS because
 // of custom player sounds
@@ -549,6 +600,10 @@ static void S_Base_StartSoundEx( vec3_t origin, int entityNum, int entchannel, s
 	if (sfx->inMemory == qfalse) {
 		S_memoryLoad(sfx);
 	}
+
+#ifdef __ORBIS__
+	PS4_RumbleForSfx(sfx->soundName, entityNum, localSound);
+#endif
 
 	if ( s_show->integer == 1 ) {
 		Com_Printf( "%i : %s\n", s_paintedtime, sfx->soundName );

@@ -197,33 +197,112 @@ static void PS4_RumbleTick(void)
 static int s_frameCount  = 0;
 static int s_initDone    = 0;
 
-/* Health lightbar state. Updated every frame from cl.snap.ps.stats[STAT_HEALTH].
- * Three states:
- *   0 = normal (aim-mode color: blue or cyan)
- *   1 = low health 26-50: static dim red
- *   2 = critical health 1-25: pulsing bright red
- *   3 = dead (health <= 0): solid dark red, no pulse
- * Only active when clc.state == CA_ACTIVE and snap is valid. */
-static int s_healthLightbarState = 0;  /* 0=normal,1=low,2=critical,3=dead */
-static int s_healthLightbarLastMs = 0; /* time of last lightbar write */
 
-/* Write the aim-mode lightbar color (blue=stick, cyan=touchpad).
- * Called on init, on aim-mode toggle, and when returning to normal health. */
+/* =====================================================================
+ * Health lightbar: hue-based pulse system (brightness/alpha is broken)
+ * =====================================================================
+ * Since the Orbis SDK ignores alpha and renders all RGB values at full
+ * intensity, we create "pulse" by alternating between two distinct hues.
+ * 
+ * Health 100 -> 50:  green fades to yellow (no pulse, solid color)
+ * Health 50  -> 25:  yellow <-> orange pulse (~3s period, 1s orange)
+ * Health 25  -> 1:   red <-> dark red pulse (~1.5s period, 0.5s dark red)
+ * Health 0:          purple <-> red pulse (~1.5s period, 500ms red)
+ * Out of game:       blue/cyan aim-mode color
+ * ===================================================================== */
+
+static uint8_t s_lastLightbar[3] = { 0, 0, 0 };
+static int     s_lightbarLastMs  = 0;
+static int     s_lightbarInGame  = 0;
+
+static void PS4_SetLightbarRGB(uint8_t r, uint8_t g, uint8_t b)
+{
+    if (s_padHandle < 0) return;
+    OrbisPadColor col = { r, g, b, 0 };
+    scePadSetLightBar(s_padHandle, &col);
+}
+
+/* Smooth lerp between two RGB values. t=0 -> c1, t=1 -> c2. */
+static void PS4_LerpColor(const uint8_t c1[3], const uint8_t c2[3], float t,
+                        uint8_t out[3])
+{
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    out[0] = (uint8_t)(c1[0] + (c2[0] - c1[0]) * t);
+    out[1] = (uint8_t)(c1[1] + (c2[1] - c1[1]) * t);
+    out[2] = (uint8_t)(c1[2] + (c2[2] - c1[2]) * t);
+}
+
+/* Compute base color for a given health value. No pulse applied here. */
+static void PS4_HealthToBaseColor(int health, uint8_t out[3])
+{
+    static const uint8_t green[3]  = { 0,   255, 0   };  /* 100 HP */
+    static const uint8_t yellow[3] = { 255, 255, 0   };  /*  50 HP */
+    static const uint8_t red[3]    = { 255, 0,   0   };  /*  25 HP */
+    static const uint8_t purple[3] = { 255, 51, 70   };  /*   0 HP */
+
+    if (health >= 50) {
+        float t = (100.0f - health) / 50.0f;
+        PS4_LerpColor(green, yellow, t, out);
+    } else if (health >= 25) {
+        float t = (50.0f - health) / 25.0f;
+        PS4_LerpColor(yellow, red, t, out);
+    } else {
+        /* 25 -> 0: red to purple (includes dead state, overridden by pulse) */
+        float t = (25.0f - health) / 25.0f;
+        PS4_LerpColor(red, purple, t, out);
+    }
+}
+
+/* Returns 0 = use base color, 1 = use alternate "dim" color (different hue).
+   Period and duty cycle vary by health range. */
+static int PS4_HealthPulsePhase(int health, int nowMs)
+{
+    if (health > 50) {
+        return 0;  /* solid, no pulse */
+    } else if (health > 25) {
+        /* Slow: 3s period, 1s alternate */
+        int phase = nowMs % 3000;
+        return (phase >= 2000) ? 1 : 0;
+    } else if (health > 0) {
+        /* Medium: 1.0s period, 0.5s alternate */
+        int phase = nowMs % 1000;
+        return (phase >= 500) ? 1 : 0;
+    } else {
+        /* Dead */
+        return 0;
+    }
+}
+
+/* Get the alternate "dim" color for a given health range.
+   Must be a distinctly different hue from the base color. */
+static void PS4_HealthPulseColor(int health, uint8_t out[3])
+{
+    if (health > 50) {
+        out[0] = 0; out[1] = 0; out[2] = 0;  /* unused */
+    } else if (health > 25) {
+        /* Yellow base -> orange alternate */
+        out[0] = 255; out[1] = 128; out[2] = 0;
+    } else if (health > 0) {
+        out[0] = 255; out[1] = 0; out[2] = 0;
+    } else {
+        /* Purple base -> red alternate */
+        out[0] = 255; out[1] = 51; out[2] = 10;
+    }
+}
+
 static void PS4_SetAimModeColor(void)
 {
     if (s_padHandle < 0) return;
     if (s_aimMode == 1) {
-        OrbisPadColor col = { 0, 255, 255, 0 }; /* cyan = touchpad */
+        OrbisPadColor col = { 0, 255, 255, 0 };
         scePadSetLightBar(s_padHandle, &col);
     } else {
-        OrbisPadColor col = { 0, 0, 255, 0 };   /* blue = stick */
+        OrbisPadColor col = { 0, 0, 255, 0 };
         scePadSetLightBar(s_padHandle, &col);
     }
 }
 
-/* Called once per IN_Frame. Reads health from the client snapshot and updates
- * the lightbar. scePadSetLightBar is only called when state changes or during
- * the pulse animation (≤25 HP), so the call rate is low in the normal case. */
 static void PS4_UpdateHealthLightbar(void)
 {
     extern clientActive_t cl;
@@ -231,51 +310,49 @@ static void PS4_UpdateHealthLightbar(void)
 
     if (s_padHandle < 0) return;
 
-    /* Out of game: restore aim-mode color and reset. */
+    /* Out of game: restore aim-mode color */
     if (clc.state != CA_ACTIVE || (cl.snap.snapFlags & SNAPFLAG_NOT_ACTIVE)) {
-        if (s_healthLightbarState != 0) {
-            s_healthLightbarState = 0;
+        if (s_lightbarInGame) {
+            s_lightbarInGame = 0;
             PS4_SetAimModeColor();
+            memset(s_lastLightbar, 0, sizeof(s_lastLightbar));
         }
         return;
     }
 
+    s_lightbarInGame = 1;
+
     int health = cl.snap.ps.stats[STAT_HEALTH];
     int now    = Sys_Milliseconds();
 
-    if (health <= 0) {
-        /* Dead: solid dark red, update only on state change. */
-        if (s_healthLightbarState != 3) {
-            s_healthLightbarState = 3;
-            OrbisPadColor col = { 60, 0, 0, 0 };
-            scePadSetLightBar(s_padHandle, &col);
-        }
-    } else if (health <= 25) {
-        /* Critical: pulsing red. Sine wave with ~1s period.
-         * Update every 33ms (30fps) to keep call rate reasonable. */
-        s_healthLightbarState = 2;
-        if (now - s_healthLightbarLastMs >= 33) {
-            s_healthLightbarLastMs = now;
-            /* sin() oscillates -1..1; map to 80..255 so it never goes fully off. */
-            float phase = (float)(now % 1000) / 1000.0f; /* 0..1 per second */
-            float s = sinf(phase * 6.2831853f);           /* full sine cycle */
-            int r = (int)(167.5f + s * 87.5f);            /* 80..255 */
-            OrbisPadColor col = { (uint8_t)r, 0, 0, 0 };
-            scePadSetLightBar(s_padHandle, &col);
-        }
-    } else if (health <= 50) {
-        /* Low: static dim red, update only on state change. */
-        if (s_healthLightbarState != 1) {
-            s_healthLightbarState = 1;
-            OrbisPadColor col = { 120, 0, 0, 0 };
-            scePadSetLightBar(s_padHandle, &col);
-        }
+    uint8_t base[3];
+    PS4_HealthToBaseColor(health, base);
+
+    int pulsePhase = PS4_HealthPulsePhase(health, now);
+    uint8_t r, g, b;
+
+    if (pulsePhase && health <= 50) {
+        uint8_t alt[3];
+        PS4_HealthPulseColor(health, alt);
+        r = alt[0]; g = alt[1]; b = alt[2];
     } else {
-        /* Healthy: restore aim-mode color on state change. */
-        if (s_healthLightbarState != 0) {
-            s_healthLightbarState = 0;
-            PS4_SetAimModeColor();
-        }
+        r = base[0]; g = base[1]; b = base[2];
+    }
+
+    /* Throttle: only update if color changed, or during pulse at ~30fps */
+    int needsUpdate = (r != s_lastLightbar[0] || g != s_lastLightbar[1] || b != s_lastLightbar[2]);
+    if (health <= 50) {
+        if (now - s_lightbarLastMs < 33)
+            needsUpdate = 0;
+        else
+            s_lightbarLastMs = now;
+    }
+
+    if (needsUpdate) {
+        PS4_SetLightbarRGB(r, g, b);
+        s_lastLightbar[0] = r;
+        s_lastLightbar[1] = g;
+        s_lastLightbar[2] = b;
     }
 }
 
@@ -538,8 +615,10 @@ void IN_Init(void *windowData)
     s_initDone   = 1;
     s_oskActive  = 0;
 
-    s_healthLightbarState  = 0;
-    s_healthLightbarLastMs = 0;
+    /* Reset new lightbar state */
+    memset(s_lastLightbar, 0, sizeof(s_lastLightbar));
+    s_lightbarLastMs = 0;
+    s_lightbarInGame = 0;
     PS4_SetAimModeColor(); /* blue = stick aim (default) */
 
     Cvar_Get("ui_lastServerAddress", "", CVAR_ARCHIVE);
@@ -695,11 +774,15 @@ void IN_Frame(void)
             s_touchPrevY = -1.0f;
             if (s_aimMode == 1) {
                 Com_Printf("Aim mode: TOUCHPAD\n");
+                OrbisPadColor col = { 0, 255, 255, 0 }; //cyan
+                scePadSetLightBar(s_padHandle, &col);
             } else {
                 Com_Printf("Aim mode: STICK\n");
+                OrbisPadColor col = { 0, 0, 255, 0 }; //blue
+                scePadSetLightBar(s_padHandle, &col);
             }
             /* Only update lightbar color if health is not overriding it. */
-            if (s_healthLightbarState == 0) {
+            if (!s_lightbarInGame) {
                 PS4_SetAimModeColor();
             }
             ds4_btn_prev[BTN_IDX_L3]      = l3_held;
@@ -910,10 +993,13 @@ void IN_Shutdown(void)
     s_aimAccumY  = 0.0f;
     s_touchPrevX = -1.0f;
     s_touchPrevY = -1.0f;
-    s_healthLightbarState  = 0;
-    s_healthLightbarLastMs = 0;
     s_initDone = 0;
     s_oskActive = 0;
+    
+    /* Reset lightbar state */
+    memset(s_lastLightbar, 0, sizeof(s_lastLightbar));
+    s_lightbarLastMs = 0;
+    s_lightbarInGame = 0;
 }
 
 void IN_Restart(void)

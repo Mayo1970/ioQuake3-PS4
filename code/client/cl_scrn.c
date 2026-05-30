@@ -475,50 +475,23 @@ This will be called twice if rendering in stereo mode
 void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	qboolean uiFullscreen;
 
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: calling re.BeginFrame\n"); } }
-#endif
 	re.BeginFrame( stereoFrame );
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: re.BeginFrame done\n"); } }
-#endif
 
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: calling UI_IS_FULLSCREEN\n"); } }
-#endif
 	uiFullscreen = (uivm && VM_Call( uivm, UI_IS_FULLSCREEN ));
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: UI_IS_FULLSCREEN done (fs=%d)\n", (int)uiFullscreen); } }
-#endif
 
 	// wide aspect ratio screens need to have the sides cleared
 	// unless they are displaying game renderings
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: entering widescreen check\n"); } }
-#endif
 	if ( uiFullscreen || clc.state < CA_LOADING ) {
 		if ( cls.glconfig.vidWidth * 480 > cls.glconfig.vidHeight * 640 ) {
-#ifdef __PS3__
-			{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: widescreen letterbox: calling re.SetColor+DrawStretchPic\n"); } }
-#endif
 			re.SetColor( g_color_table[0] );
 			re.DrawStretchPic( 0, 0, cls.glconfig.vidWidth, cls.glconfig.vidHeight, 0, 0, 0, 0, cls.whiteShader );
 			re.SetColor( NULL );
-#ifdef __PS3__
-			{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: widescreen letterbox done\n"); } }
-#endif
 		}
 	}
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: past widescreen block, entering state switch (uivm=%p fs=%d state=%d)\n", (void*)uivm, (int)uiFullscreen, (int)clc.state); } }
-#endif
 
 	// if the menu is going to cover the entire screen, we
 	// don't need to render anything under it
 	if ( uivm && !uiFullscreen ) {
-#ifdef __PS3__
-		{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: inside uivm&&!uiFullscreen, state=%d\n", (int)clc.state); } }
-#endif
 		switch( clc.state ) {
 		default:
 			Com_Error( ERR_FATAL, "SCR_DrawScreenField: bad clc.state" );
@@ -528,14 +501,8 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 			break;
 		case CA_DISCONNECTED:
 			// force menu up
-#ifdef __PS3__
-			{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: SCR CA_DISCONNECTED: calling UI_SET_ACTIVE_MENU\n"); } }
-#endif
 			S_StopAllSounds();
 			VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_MAIN );
-#ifdef __PS3__
-			{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: SCR CA_DISCONNECTED: done\n"); } }
-#endif
 			break;
 		case CA_CONNECTING:
 		case CA_CHALLENGING:
@@ -569,23 +536,11 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 
 	// the menu draws next
 	if ( Key_GetCatcher( ) & KEYCATCH_UI && uivm ) {
-#ifdef __PS3__
-		{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: calling UI_REFRESH (menu draw)\n"); } }
-#endif
 		VM_Call( uivm, UI_REFRESH, cls.realtime );
-#ifdef __PS3__
-		{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: UI_REFRESH done\n"); } }
-#endif
 	}
 
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: calling Con_DrawConsole\n"); } }
-#endif
 	// console draws next
 	Con_DrawConsole ();
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: Con_DrawConsole done\n"); } }
-#endif
 
 	// debug graph can be drawn on top of anything
 	if ( cl_debuggraph->integer || cl_timegraph->integer || cl_debugMove->integer ) {
@@ -624,25 +579,13 @@ void SCR_UpdateScreen( void ) {
 			SCR_DrawScreenField( STEREO_LEFT );
 			SCR_DrawScreenField( STEREO_RIGHT );
 		} else {
-#ifdef __PS3__
-			{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: calling SCR_DrawScreenField\n"); } }
-#endif
 			SCR_DrawScreenField( STEREO_CENTER );
-#ifdef __PS3__
-			{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: SCR_DrawScreenField done\n"); } }
-#endif
 		}
 
 		if ( com_speeds->integer ) {
 			re.EndFrame( &time_frontend, &time_backend );
 		} else {
-#ifdef __PS3__
-			{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: calling re.EndFrame\n"); } }
-#endif
 			re.EndFrame( NULL, NULL );
-#ifdef __PS3__
-			{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: re.EndFrame done\n"); } }
-#endif
 		}
 	}
 	

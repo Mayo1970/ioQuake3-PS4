@@ -313,6 +313,22 @@ static InitialVideoOptions_s s_ivo_templates[] =
 	{
 		2, qtrue, 1, 1, 1, 0, 0, 0, 0, qtrue
 	},
+	/*
+	Position	Field	Your PS4 Value	Meaning
+	0	mode	3	Resolution mode (10 = 1920x1080)
+	1	fullscreen	qtrue	Fullscreen on
+	2	tq	3	Texture quality
+	3	lighting	0	Lightmap lighting
+	4	colordepth	2	32-bit color
+	5	texturebits	1	16-bit textures
+	6	geometry	2	High geometric detail
+	7	filter	1	Trilinear filtering
+	8	driver	0	Default GL driver
+	9	extensions	qtrue	GL extensions enabled
+	*/
+	{  // 5: PS4
+		10, qtrue, 3, 0, 2, 1, 2, 1, 0, qtrue
+	},
 	{
 		3, qtrue, 1, 0, 0, 0, 1, 0, 0, qtrue
 	}
@@ -332,6 +348,7 @@ static const char *builtinResolutions[ ] =
 	"1152x864",
 	"1280x1024",
 	"1600x1200",
+	"1920x1080",
 	"2048x1536",
 	"856x480",
 	NULL
@@ -988,6 +1005,7 @@ void GraphicsOptions_MenuInit( void )
 		"Normal",
 		"Fast",
 		"Fastest",
+		"PS4",
 		"Custom",
 		NULL
 	};

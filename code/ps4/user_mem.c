@@ -1,13 +1,6 @@
-/*
- * user_mem.c - PS4 custom memory allocator using SceLibcInternal mspace
- *
- * Maps a large flexible memory region and creates an mspace, then
- * overrides malloc/free/calloc/realloc/memalign/posix_memalign globally.
- * Piglet calls malloc internally during eglGetDisplay; without a working
- * allocator backed by sufficient memory, it fails silently.
- *
- * Based on OsirizX/sm64-port ps4/memory/user_mem.c
- */
+/* user_mem.c -- maps a flexible-memory mspace and overrides malloc/free etc.
+   globally. Piglet mallocs internally during eglGetDisplay and fails silently
+   without a sufficiently large allocator. Based on OsirizX/sm64-port. */
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>

@@ -23,6 +23,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // cg_main.c -- initialization and primary entry point for cgame
 #include "cg_local.h"
 
+qboolean CG_LoadCustomMusic( void );
+
 #ifdef MISSIONPACK
 #include "../ui/ui_shared.h"
 // display context for new ui stuff
@@ -225,10 +227,10 @@ static cvarTable_t cvarTable[] = {
 	{ &cg_drawIcons, "cg_drawIcons", "1", CVAR_ARCHIVE  },
 	{ &cg_drawAmmoWarning, "cg_drawAmmoWarning", "1", CVAR_ARCHIVE  },
 	{ &cg_drawAttacker, "cg_drawAttacker", "1", CVAR_ARCHIVE  },
-	{ &cg_drawCrosshair, "cg_drawCrosshair", "4", CVAR_ARCHIVE },
+	{ &cg_drawCrosshair, "cg_drawCrosshair", "8", CVAR_ARCHIVE },
 	{ &cg_drawCrosshairNames, "cg_drawCrosshairNames", "1", CVAR_ARCHIVE },
 	{ &cg_drawRewards, "cg_drawRewards", "1", CVAR_ARCHIVE },
-	{ &cg_crosshairSize, "cg_crosshairSize", "24", CVAR_ARCHIVE },
+	{ &cg_crosshairSize, "cg_crosshairSize", "32", CVAR_ARCHIVE },
 	{ &cg_crosshairHealth, "cg_crosshairHealth", "1", CVAR_ARCHIVE },
 	{ &cg_crosshairX, "cg_crosshairX", "0", CVAR_ARCHIVE },
 	{ &cg_crosshairY, "cg_crosshairY", "0", CVAR_ARCHIVE },
@@ -1166,22 +1168,230 @@ const char *CG_ConfigString( int index ) {
 //==================================================================
 
 /*
+==================
+CG_LoadCustomMusic
+
+Attempts to load a custom playlist or autoexec for map-specific music.
+Tries in order: playlist_<mapname>.cfg -> autoexec_<mapname>.cfg -> playlist.cfg
+Returns qtrue if custom music was loaded, qfalse to fall back to default.
+==================
+*/
+qboolean CG_LoadCustomMusic( void ) {
+    char        autoexecPath[MAX_QPATH];
+    char        playlistPath[MAX_QPATH];
+    char        playlistPath2[MAX_QPATH];
+    char        mapnameBase[MAX_QPATH];
+    char        line[MAX_QPATH];
+    char        songs[64][MAX_QPATH];
+    char        musicCmd[MAX_QPATH + 16];
+    char        *playlistData;
+    char        *p;
+    char        *lineStart;
+    char        *dot;
+    int         fileSize;
+    int         songCount;
+    int         selectedSong;
+    int         len;
+    int         f;
+    int         i;
+    qboolean    randomPlay;
+
+    songCount = 0;
+    selectedSong = 0;
+    randomPlay = qfalse;
+
+    // Extract base mapname from cgs.mapname (strip "maps/" prefix and ".bsp" suffix)
+    Q_strncpyz(mapnameBase, cgs.mapname, sizeof(mapnameBase));
+
+    // Strip "maps/" prefix if present
+    if (!Q_stricmpn(mapnameBase, "maps/", 5)) {
+        for (i = 0; mapnameBase[i + 5]; i++) {
+            mapnameBase[i] = mapnameBase[i + 5];
+        }
+        mapnameBase[i] = '\0';
+    }
+
+    // Strip ".bsp" suffix if present
+    dot = strstr(mapnameBase, ".bsp");
+    if (dot) {
+        *dot = '\0';
+    }
+
+    // Build file paths using cleaned mapname
+    Com_sprintf(autoexecPath, sizeof(autoexecPath), "autoexec_%s.cfg", mapnameBase);
+    Com_sprintf(playlistPath, sizeof(playlistPath), "playlist_%s.cfg", mapnameBase);
+    Com_sprintf(playlistPath2, sizeof(playlistPath2), "playlist.cfg");
+    
+    // DEBUG
+    ///CG_Printf(S_COLOR_CYAN "DEBUG: cgs.mapname = '%s'\n", cgs.mapname);
+    CG_Printf(S_COLOR_CYAN "DEBUG: mapnameBase = '%s'\n", mapnameBase);
+    //CG_Printf(S_COLOR_CYAN "DEBUG: playlistPath = '%s'\n", playlistPath);
+    //CG_Printf(S_COLOR_CYAN "DEBUG: playlistPath2 = '%s'\n", playlistPath2);
+    //CG_Printf(S_COLOR_CYAN "DEBUG: autoexecPath = '%s'\n", autoexecPath);
+
+    // ============================================================
+    // STEP 1: Try map-specific playlist: playlist_<mapname>.cfg
+    // ============================================================
+    f = 0;
+    fileSize = trap_FS_FOpenFile(playlistPath, &f, FS_READ);
+
+    if (fileSize > 0) {
+        goto parse_playlist;
+    }
+    if (f) {
+        trap_FS_FCloseFile(f);
+        f = 0;
+    }
+
+    // ============================================================
+    // STEP 2: No map-specific playlist — try autoexec_<mapname>.cfg
+    // ============================================================
+    fileSize = trap_FS_FOpenFile(autoexecPath, &f, FS_READ);
+    if (fileSize > 0) {
+        trap_FS_FCloseFile(f);
+        trap_SendConsoleCommand(va("exec %s\n", autoexecPath));
+        CG_Printf(S_COLOR_YELLOW "Auto-executing map config: %s\n", autoexecPath);
+        trap_Cvar_Set("s_customMusic", "1");
+        return qtrue;
+    }
+    if (f) {
+        trap_FS_FCloseFile(f);
+        f = 0;
+    }
+
+    // ============================================================
+    // STEP 3: No map-specific files — try generic: playlist.cfg
+    // ============================================================
+    fileSize = trap_FS_FOpenFile(playlistPath2, &f, FS_READ);
+
+    if (fileSize <= 0) {
+        if (f) {
+            trap_FS_FCloseFile(f);
+        }
+        // Nothing found — fall back to default map music
+        return qfalse;
+    }
+
+parse_playlist:
+    // ============================================================
+    // Parse and play the playlist (used by both playlist paths)
+    // ============================================================
+    {
+        static char playlistBuffer[8192];
+
+        if (fileSize >= 8191) {
+            trap_FS_FCloseFile(f);
+            CG_Printf(S_COLOR_RED "Playlist file too large (max 8191 bytes)\n");
+            return qfalse;
+        }
+
+        trap_FS_Read(playlistBuffer, fileSize, f);
+        trap_FS_FCloseFile(f);
+        playlistBuffer[fileSize] = '\0';
+        playlistData = playlistBuffer;
+
+        // Manual line parsing (no strtok_r in QVM)
+        p = playlistData;
+        while (*p && songCount < 64) {
+            // Skip leading whitespace and empty lines
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') {
+                p++;
+            }
+
+            if (*p == '\0') {
+                break;
+            }
+
+            // Skip comment lines
+            if (*p == '#' || (*p == '/' && *(p+1) == '/')) {
+                while (*p && *p != '\n' && *p != '\r') {
+                    p++;
+                }
+                continue;
+            }
+
+            // Extract one line
+            lineStart = p;
+            len = 0;
+            while (*p && *p != '\n' && *p != '\r' && len < MAX_QPATH - 1) {
+                p++;
+                len++;
+            }
+
+            if (len > 0) {
+                Com_Memcpy(line, lineStart, len);
+                line[len] = '\0';
+
+                // Trim trailing whitespace
+                while (len > 0 && (line[len-1] == ' ' || line[len-1] == '\t')) {
+                    line[len-1] = '\0';
+                    len--;
+                }
+
+                // Check for "random" directive
+                if (!Q_stricmpn(line, "random", 6)) {
+                    randomPlay = qtrue;
+                    CG_Printf("Playlist: Random mode enabled\n");
+                }
+                // Parse "music path/to/song.ogg"
+                else if (!Q_stricmpn(line, "music ", 6)) {
+                    Q_strncpyz(songs[songCount], line + 6, sizeof(songs[songCount]));
+                    songCount++;
+                }
+                // Plain path
+                else if (line[0] != '\0') {
+                    Q_strncpyz(songs[songCount], line, sizeof(songs[songCount]));
+                    songCount++;
+                }
+            }
+        }
+
+        // Play a song from the playlist
+        if (songCount > 0) {
+            if (randomPlay && songCount > 1) {
+                selectedSong = rand() % songCount;
+                CG_Printf(S_COLOR_YELLOW "Playlist: Random mode - %d songs available\n", songCount);
+            }
+
+            Com_sprintf(musicCmd, sizeof(musicCmd), "music %s\n", songs[selectedSong]);
+            trap_SendConsoleCommand(musicCmd);
+            CG_Printf(S_COLOR_YELLOW "Playlist: Playing song %d/%d: %s\n",
+                selectedSong + 1, songCount, songs[selectedSong]);
+
+            trap_Cvar_Set("s_customMusic", "1");
+            return qtrue;
+        }
+    }
+
+    // Playlist was empty
+    return qfalse;
+}
+
+/*
 ======================
 CG_StartMusic
 
 ======================
 */
+
 void CG_StartMusic( void ) {
-	char	*s;
-	char	parm1[MAX_QPATH], parm2[MAX_QPATH];
+    char    *s;
+    char    parm1[MAX_QPATH];
+    char    parm2[MAX_QPATH];
 
-	// start the background music
-	s = (char *)CG_ConfigString( CS_MUSIC );
-	Q_strncpyz( parm1, COM_Parse( &s ), sizeof( parm1 ) );
-	Q_strncpyz( parm2, COM_Parse( &s ), sizeof( parm2 ) );
+    // Try custom music first (playlists / autoexec)
+    if (CG_LoadCustomMusic()) {
+        return;
+    }
 
-	trap_S_StartBackgroundTrack( parm1, parm2 );
+    // start the background music
+    s = (char *)CG_ConfigString( CS_MUSIC );
+    Q_strncpyz( parm1, COM_Parse( &s ), sizeof( parm1 ) );
+    Q_strncpyz( parm2, COM_Parse( &s ), sizeof( parm2 ) );
+
+    trap_S_StartBackgroundTrack( parm1, parm2 );
 }
+
 #ifdef MISSIONPACK
 char *CG_GetMenuBuffer(const char *filename) {
 	int	len;

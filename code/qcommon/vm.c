@@ -70,9 +70,15 @@ VM_Init
 ==============
 */
 void VM_Init( void ) {
-	Cvar_Get( "vm_cgame", "2", CVAR_ARCHIVE );	// !@# SHIP WITH SET TO 2
-	Cvar_Get( "vm_game", "2", CVAR_ARCHIVE );	// !@# SHIP WITH SET TO 2
-	Cvar_Get( "vm_ui", "2", CVAR_ARCHIVE );		// !@# SHIP WITH SET TO 2
+	Cvar_Get( "vm_cgame", "2", CVAR_ARCHIVE );
+	Cvar_Get( "vm_game",  "2", CVAR_ARCHIVE );
+	Cvar_Get( "vm_ui",    "2", CVAR_ARCHIVE );
+#ifdef __ORBIS__
+	/* JIT (2) is not compiled in on PS4. Override any stale value from q3config.cfg. */
+	Cvar_Set( "vm_cgame", "1" );
+	Cvar_Set( "vm_game",  "1" );
+	Cvar_Set( "vm_ui",    "1" );
+#endif
 
 	Cmd_AddCommand ("vmprofile", VM_VmProfile_f );
 	Cmd_AddCommand ("vminfo", VM_VmInfo_f );

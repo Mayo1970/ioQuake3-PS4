@@ -1,6 +1,7 @@
 /* ps4_glimp.c -- PS4 Piglet/EGL GLES2 context management. */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -10,6 +11,7 @@
 
 #include "../renderercommon/tr_common.h"
 #include "../sys/sys_local.h"
+#include "../qcommon/unzip.h"
 
 /* GLES version globals (declared extern in qgl.h). */
 int qglMajorVersion = 0;
@@ -24,6 +26,275 @@ static EGLContext  s_context = EGL_NO_CONTEXT;
 static int s_pigletModuleId  = -1;
 static int s_shaccModuleId   = -1;
 static qboolean s_pigletConfigured = qfalse;
+
+/* Splash screen, drawn once right after the GL context is up. Source image:
+   magick logo.bmp -resize "1920x1080^" -gravity center -extent 1920x1080 -flip -depth 8 RGBA:splash.rgba */
+#ifdef STANDALONETA
+#define SPLASH_PATH    "/app0/fixes/ta.zip"
+#elif defined(STANDALONEOA)
+#define SPLASH_PATH    "/app0/fixes/oa.zip"
+#else
+#define SPLASH_PATH    "/app0/fixes/splash.zip"
+#endif
+#define SPLASH_WIDTH   1920
+#define SPLASH_HEIGHT  1080
+#define SPLASH_SIZE    (SPLASH_WIDTH * SPLASH_HEIGHT * 4)
+
+static const char *splash_vert =
+    "attribute vec2 a_pos;\n"
+    "attribute vec2 a_uv;\n"
+    "varying vec2 v_uv;\n"
+    "void main() {\n"
+    "    gl_Position = vec4(a_pos, 0.0, 1.0);\n"
+    "    v_uv = a_uv;\n"
+    "}\n";
+
+static const char *splash_frag =
+    "precision mediump float;\n"
+    "varying vec2 v_uv;\n"
+    "uniform sampler2D u_tex;\n"
+    "void main() {\n"
+    "    gl_FragColor = texture2D(u_tex, v_uv);\n"
+    "}\n";
+
+static GLuint splash_prog;
+static GLuint splash_vbo;
+static GLuint splash_tex;
+
+static GLuint Splash_CompileShader(GLenum type, const char *src)
+{
+    GLuint s = glCreateShader(type);
+    GLint compiled;
+
+    glShaderSource(s, 1, &src, NULL);
+    glCompileShader(s);
+    glGetShaderiv(s, GL_COMPILE_STATUS, &compiled);
+
+    if (!compiled) {
+        char log[512];
+        glGetShaderInfoLog(s, sizeof(log), NULL, log);
+        Com_Printf("Splash: shader compile failed: %s\n", log);
+        glDeleteShader(s);
+        return 0;
+    }
+
+    return s;
+}
+
+static void Splash_CreateResources(void)
+{
+    GLuint vs, fs;
+    GLint linked;
+
+    vs = Splash_CompileShader(GL_VERTEX_SHADER, splash_vert);
+    fs = Splash_CompileShader(GL_FRAGMENT_SHADER, splash_frag);
+
+    if (!vs || !fs) {
+        Com_Printf("Splash: shader compilation failed, skipping splash\n");
+        if (vs) glDeleteShader(vs);
+        if (fs) glDeleteShader(fs);
+        return;
+    }
+
+    splash_prog = glCreateProgram();
+    glAttachShader(splash_prog, vs);
+    glAttachShader(splash_prog, fs);
+    glBindAttribLocation(splash_prog, 0, "a_pos");
+    glBindAttribLocation(splash_prog, 1, "a_uv");
+    glLinkProgram(splash_prog);
+    glGetProgramiv(splash_prog, GL_LINK_STATUS, &linked);
+
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    if (!linked) {
+        char log[512];
+        glGetProgramInfoLog(splash_prog, sizeof(log), NULL, log);
+        Com_Printf("Splash: program link failed: %s\n", log);
+        glDeleteProgram(splash_prog);
+        splash_prog = 0;
+        return;
+    }
+
+    /* Fullscreen quad: 2 triangles, pos + uv interleaved */
+    float verts[] = {
+        /* pos        uv     */
+        -1.0f, -1.0f, 0.0f, 0.0f,   /* bottom-left */
+         1.0f, -1.0f, 1.0f, 0.0f,   /* bottom-right */
+        -1.0f,  1.0f, 0.0f, 1.0f,   /* top-left */
+
+        -1.0f,  1.0f, 0.0f, 1.0f,   /* top-left */
+         1.0f, -1.0f, 1.0f, 0.0f,   /* bottom-right */
+         1.0f,  1.0f, 1.0f, 1.0f,   /* top-right */
+    };
+
+    glGenBuffers(1, &splash_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, splash_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glGenTextures(1, &splash_tex);
+    glBindTexture(GL_TEXTURE_2D, splash_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+static void Splash_DestroyResources(void)
+{
+    if (splash_prog) {
+        glDeleteProgram(splash_prog);
+        splash_prog = 0;
+    }
+    if (splash_vbo) {
+        glDeleteBuffers(1, &splash_vbo);
+        splash_vbo = 0;
+    }
+    if (splash_tex) {
+        glDeleteTextures(1, &splash_tex);
+        splash_tex = 0;
+    }
+}
+
+static qboolean Splash_LoadTexture(void)
+{
+    unzFile uf;
+    unz_file_info file_info;
+    unsigned char *pixels = NULL;
+    int ret;
+    qboolean result = qfalse;
+
+    uf = unzOpen(SPLASH_PATH);
+    if (!uf) {
+        Com_Printf("Splash: unzOpen failed for %s\n", SPLASH_PATH);
+        return qfalse;
+    }
+
+    ret = unzLocateFile(uf, "splash.rgba", 2); /* 2 = case-insensitive */
+    if (ret != UNZ_OK) {
+        Com_Printf("Splash: unzLocateFile failed (%d)\n", ret);
+        unzClose(uf);
+        return qfalse;
+    }
+
+    ret = unzGetCurrentFileInfo(uf, &file_info, NULL, 0, NULL, 0, NULL, 0);
+    if (ret != UNZ_OK || file_info.uncompressed_size != SPLASH_SIZE) {
+        Com_Printf("Splash: bad file size (%lu != %d)\n",
+                   (unsigned long)file_info.uncompressed_size, SPLASH_SIZE);
+        unzClose(uf);
+        return qfalse;
+    }
+
+    ret = unzOpenCurrentFile(uf);
+    if (ret != UNZ_OK) {
+        Com_Printf("Splash: unzOpenCurrentFile failed (%d)\n", ret);
+        unzClose(uf);
+        return qfalse;
+    }
+
+    pixels = (unsigned char *)malloc(SPLASH_SIZE);
+    if (!pixels) {
+        Com_Printf("Splash: failed to allocate pixel buffer\n");
+        unzCloseCurrentFile(uf);
+        unzClose(uf);
+        return qfalse;
+    }
+
+    ret = unzReadCurrentFile(uf, pixels, SPLASH_SIZE);
+    if (ret != SPLASH_SIZE) {
+        Com_Printf("Splash: unzReadCurrentFile failed (%d)\n", ret);
+        free(pixels);
+        unzCloseCurrentFile(uf);
+        unzClose(uf);
+        return qfalse;
+    }
+
+    unzCloseCurrentFile(uf);
+    unzClose(uf);
+
+    glBindTexture(GL_TEXTURE_2D, splash_tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SPLASH_WIDTH, SPLASH_HEIGHT,
+                 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    result = qtrue;
+
+    free(pixels);
+    return result;
+}
+
+static void Splash_DrawOnce(void)
+{
+    GLint prevProg;
+    GLint prevTex;
+    GLint prevArrayBuf;
+    GLboolean blend, depthTest, cullFace;
+    GLint viewport[4];
+
+    /* Save renderer state so we don't interfere */
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevArrayBuf);
+    blend = glIsEnabled(GL_BLEND);
+    depthTest = glIsEnabled(GL_DEPTH_TEST);
+    cullFace = glIsEnabled(GL_CULL_FACE);
+    glGetIntegerv(GL_VIEWPORT, viewport);
+
+    if (!splash_prog)
+        Splash_CreateResources();
+
+    if (!splash_prog || !Splash_LoadTexture()) {
+        glUseProgram(prevProg);
+        glBindTexture(GL_TEXTURE_2D, prevTex);
+        glBindBuffer(GL_ARRAY_BUFFER, prevArrayBuf);
+        if (blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+        if (depthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+        if (cullFace) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
+        glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        return;
+    }
+
+    glViewport(0, 0, glConfig.vidWidth, glConfig.vidHeight);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+
+    glUseProgram(splash_prog);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, splash_tex);
+    glUniform1i(glGetUniformLocation(splash_prog, "u_tex"), 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, splash_vbo);
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          (void *)(0));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          (void *)(2 * sizeof(float)));
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glUseProgram(0);
+
+    eglSwapBuffers(s_display, s_surface);
+
+    Splash_DestroyResources();
+
+    glUseProgram(prevProg);
+    glBindTexture(GL_TEXTURE_2D, prevTex);
+    glBindBuffer(GL_ARRAY_BUFFER, prevArrayBuf);
+    if (blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    if (depthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    if (cullFace) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
+    glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+}
 
 /* Try /data/self/.../lib, sandbox path, then /app0/sce_module/. */
 static qboolean PS4_LoadPigletModules(void)
@@ -90,7 +361,7 @@ void GLimp_Init(qboolean fixedFunction)
 	height = 1080;
 	ri.Cvar_Set("r_customwidth", "1920");
 	ri.Cvar_Set("r_customheight", "1080");
-	ri.Cvar_Set("r_mode", "-1");
+	//ri.Cvar_Set("r_mode", "-1"); //don't do this or it breaks us from changing graphics settings like textures
 
 	/* Shadow FBOs return GL_FRAMEBUFFER_UNSUPPORTED on Piglet. */
 	ri.Cvar_Set("cg_shadows", "0");
@@ -235,6 +506,10 @@ void GLimp_Init(qboolean fixedFunction)
 	glConfig.smpActive = qfalse;
 	glConfig.textureCompression = TC_NONE;
 
+	// Force 16 bit textures
+	ri.Cvar_Set("r_texturebits", "16");
+	glConfig.deviceSupportsGamma = qfalse;
+
 	Q_strncpyz(glConfig.vendor_string,
 		(const char *)qglGetString(GL_VENDOR), sizeof(glConfig.vendor_string));
 	Q_strncpyz(glConfig.renderer_string,
@@ -249,6 +524,8 @@ void GLimp_Init(qboolean fixedFunction)
 	Com_Printf("GL_VERSION: %s\n", glConfig.version_string);
 
 	Com_Printf("PS4 GLES2 context ready (%dx%d)\n", width, height);
+
+	Splash_DrawOnce();
 
 	ri.IN_Init(NULL);
 }

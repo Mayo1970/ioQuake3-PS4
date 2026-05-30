@@ -260,15 +260,15 @@ extern int demo_protocols[];
 #endif
 
 #ifndef STANDALONE
-  #ifdef STANDALONEOA
-    #define AUTHORIZE_SERVER_NAME	"dpmaster.deathmask.net"
-    #define PROTOCOL_LEGACY_VERSION	71
+	#ifdef STANDALONEOA
+		#define AUTHORIZE_SERVER_NAME	"dpmaster.deathmask.net"
+		#define PROTOCOL_LEGACY_VERSION	71
   #endif
   #ifndef AUTHORIZE_SERVER_NAME
     #define	AUTHORIZE_SERVER_NAME	"authorize.quake3arena.com"
   #endif
   #ifndef PROTOCOL_LEGACY_VERSION
-    #define PROTOCOL_LEGACY_VERSION	68
+  	#define PROTOCOL_LEGACY_VERSION	68
   #endif
   #ifndef PORT_AUTHORIZE
   #define	PORT_AUTHORIZE		27952
@@ -1128,7 +1128,7 @@ char	*Sys_SteamPath(void);
 char	*Sys_GogPath(void);
 char	*Sys_MicrosoftStorePath(void);
 
-#if defined(__APPLE__) || defined(__ORBIS__)
+#if defined(__APPLE__) || defined(__ORBIS__) || defined(__PS4__)
 char    *Sys_DefaultAppPath(void);
 #endif
 

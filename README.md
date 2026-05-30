@@ -42,27 +42,30 @@ Install the [.NET SDK](https://dotnet.microsoft.com/download) and ensure
 
 ### 5. Runtime modules (required, not included)
 
+The GLES2 driver (`libScePigletv2VSH.sprx`) and the runtime shader compiler
+(`libSceShaccVSH.sprx`) are devkit-only Sony modules not present on retail
+firmware. You must supply both yourself and FTP them to
+`/data/self/system/common/lib/` on the console. See the
+[PS4 directory layout](#ps4-directory-layout) section below.
+
 ## Building
 
-Three pkg variants are produced from the same source tree:
+Three pkg variants are produced from the same unified Makefile:
 
 ```bash
-make                  # ioQuake 3        (BASEGAME=baseq3,  TITLE_ID=QUAK03000)
-make -f Makefile.oa   # Open Arena       (BASEGAME=baseoa,  TITLE_ID=QUAK03002)
-make -f Makefile.ta   # Team Arena       (BASEGAME=baseq3 + auto fs_game=missionpack,
-                      #                   TITLE_ID=QUAK03001)
+make                  # ioQuake 3            (BASEGAME=baseq3,  TITLE_ID=QUAK03000)
+make ta               # Quake 3: Team Arena  (BASEGAME=baseq3 + auto fs_game=missionpack,
+                      #                       TITLE_ID=QUAK03001)
+make oa               # Open Arena           (BASEGAME=baseoa,  TITLE_ID=QUAK03002)
+make all-flavors      # Build all three release pkgs in sequence
 make debug            # Debug build of ioQuake 3 (writes /data/ioq3/ioquake3log.txt)
 make clean            # Remove all build artifacts
 ```
 
-Each variant uses its own object directory (`build/obj/release[/oa/ta]`,
-`build/obj/debug`), so switching builds never requires `make clean`. Release
-and debug binaries can coexist.
-
-> **Build one variant at a time.** Chaining all three back-to-back has
-> produced broken pkgs on hardware. Always fully clean
-> (`rm -rf build eboot.bin pkg.gp4 sce_sys/param.sfo IV0000-QUAK*.pkg`)
-> between variants and install/test each one before moving on.
+Each variant uses its own object directory (`build/obj/q3/release`,
+`build/obj/ta/release`, `build/obj/oa/release`, etc.), so switching builds
+never requires `make clean`. Release and debug binaries can coexist.
+`make all-flavors` builds all three packages in one pass.
 
 **Output:** `IV0000-QUAK03000_00-IOQ3PS4PORT00000.pkg` (and `QUAK03001` /
 `QUAK03002` for TA / OA).
@@ -72,6 +75,44 @@ the TA pkg auto-injects `+set fs_game missionpack` at boot, so both
 `baseq3/` *and* `missionpack/` paks must be present on the PS4 (see the
 "Mods" section below). Open Arena is a true standalone and only needs its
 own `baseoa/` paks.
+
+---
+
+## Bundling your own files (the `fixes/` folder)
+
+Anything placed under the `fixes/` directory in the source tree is **baked
+into the PKG automatically** and copied to `/data/ioq3/` on the console's
+first boot (a marker file prevents re-copying on later boots). The build
+discovers files dynamically -- there is no hardcoded file list -- so you can
+drop in extra paks, configs, shader overrides, music, etc. and they ship with
+the next build. For example:
+
+```
+fixes/
+├── baseq3/
+│   ├── pak9-ps4s.pk3        ← shipped UI / control patches
+│   └── pak10.pk3            ← drop in your own override pak, it just works
+├── missionpack/
+│   └── pak9-ps4s.pk3
+├── baseoa/
+│   └── pak9-ps4s.pk3
+├── splash.zip               ← boot splash (Quake 3)
+├── ta.zip                   ← boot splash (Team Arena)
+└── oa.zip                   ← boot splash (Open Arena)
+```
+
+Files are auto-detected anywhere under the three game folders (`baseq3/`,
+`missionpack/`, `baseoa/`) and their subdirectories, as well as in the
+`fixes/` root. Each variant only installs its relevant folders (Q3 →
+`baseq3/`, TA → `baseq3/` + `missionpack/`, OA → `baseoa/`).
+
+> **Adding a *new top-level* folder under `fixes/`** (e.g. a fourth game dir)
+> requires a small Makefile edit -- the three base folder names are declared
+> explicitly in the pkg manifest. Adding files or subfolders inside the
+> existing three needs no changes.
+
+To force a reinstall of updated fix files, delete the marker
+(`/data/ioq3/fixes_installed_<variant>.txt`) on the console via FTP.
 
 ---
 
@@ -95,7 +136,7 @@ own `baseoa/` paks.
 │   └── pak3.pk3
 └── ioquake3log.txt          ← written only in debug builds
 ```
-**You'll also need to extract the OpenGL module libScePigletv2VSH.sprx and the shader compiler module libSceShaccVSH.sprx from RetroArch_PS4_r4.pkg. You can search and find this package online.**
+**You'll also need the OpenGL module `libScePigletv2VSH.sprx` and the shader compiler module `libSceShaccVSH.sprx`. These are devkit-only Sony modules not present on retail firmware; supply your own and FTP them into place.**
 ```
 /data/self/system/common/lib/
 ├── libScePigletv2VSH.sprx   ← FTP here
@@ -106,7 +147,7 @@ own `baseoa/` paks.
 
 ## Controls
 
-Dual-stick FPS layout. Buttons are rebindable from the in-game options menu.
+Dual-stick FPS layout.
 
 #### In-game
 
@@ -121,52 +162,48 @@ Dual-stick FPS layout. Buttons are rebindable from the in-game options menu.
 | **Square** | Previous weapon |
 | **Triangle** | Next weapon |
 | **L1** | Strafe left |
-| **R1** | Strafe right |
+| **R1** | Use item |
 | **L3** | Walk / run toggle |
-| **R3** | Scoreboard |
 | **Touchpad** | Scoreboard |
 | **Options** | Menu (Escape) |
-| **L3 + Touchpad** | Toggle touchpad aim |
-| **R3 + Touchpad** | Toggle gyro aim *(experimental)* |
+| **L3 + Touchpad** | Toggle stick / touchpad aim |
 | **L3 + R3** (no Touchpad) | Toggle rumble on/off |
+
+All buttons are rebindable from the in-game Controls menu.
 
 #### Aim modes
 
-Two alternative aiming styles can be toggled at runtime via touchpad combos.
-The lightbar colour shows which mode is active:
+Two aiming styles can be toggled at runtime with **L3 + Touchpad**. The
+lightbar colour shows which mode is active:
 
 | Lightbar | Mode | Look input |
 |---|---|---|
 | **Blue** (default) | Stick aim | Right stick |
 | **Cyan** | Touchpad aim | Swipe a finger across the touchpad |
-| **Green** | Gyro aim *(experimental)* | Tilt the controller (DualShock 4 IMU) |
 
 In touchpad aim, lifting your finger resets the anchor so the next touch
-doesn't jump. Sensitivity is set via:
+doesn't jump. Right-stick look speed is adjustable from the in-game Controls
+menu; touchpad sensitivity uses the cvars `ps4_aimSensX` / `ps4_aimSensY`
+(default `0.5` each).
 
-- Touchpad: cvars `ps4_aimSensX` / `ps4_aimSensY` (default `0.5` each).
-- Gyro: cvars `ps4_gyroSensYaw` / `ps4_gyroSensPitch` (default `5.0` each).
-
-All four are archived to `q3config.cfg`.
-
-> **Gyro aim is experimental.** It works but still needs polish: the response
-> curve, default sensitivities, and dead-zone behavior may not feel right yet,
-> and it has not been tuned against competitive map flow. Feedback welcome.
+The lightbar also reflects player health in-game: dim red below 50 HP and a
+pulsing red below 25 HP, returning to the aim-mode colour when healthy.
 
 #### Rumble
 
 DualShock 4 rumble is enabled by default. It triggers only for events tied to
 the local player: own weapon fire (per-weapon strength), own pain, and hit
-feedback. Toggle on/off at runtime with **L3 + R3** (a short ack pulse plays
-on enable). Configurable via:
+feedback. Toggle it from the in-game Controls menu or at runtime with
+**L3 + R3** (a short ack pulse plays on enable). Two cvars back it:
 
-- `ps4_rumbleEnable` (default `1`) -- master on/off, archived to `q3config.cfg`.
+- `ps4_rumbleEnable` (default `1`) -- master on/off.
 - `ps4_rumbleScale` (default `1.0`, range `0.0`-`1.0`) -- global intensity.
 
 #### Player name
 
-The default player name is taken from your PSN profile on first launch
-(via `sceUserServiceGetUserName`). To override, change it from `q3config.cfg`.
+The default player name is taken from your PSN profile on first launch. To
+change it, edit the **Name** field under Setup / Player in the in-game options
+menu (the on-screen keyboard opens when you select the field).
 
 #### Text input (on-screen keyboard)
 
@@ -183,7 +220,9 @@ The default player name is taken from your PSN profile on first launch
 | Left stick | Move cursor |
 | D-pad | Arrow keys |
 | **Cross** | Confirm (Enter) |
-| **Circle** | Back (Escape) |
+| **Circle** | Confirm (Enter) |
+| **Square** | Back (Escape) |
+| **Triangle** | Back (Escape) |
 | **Options** | Escape |
 
 ---
@@ -203,7 +242,7 @@ from the in-game console (Options + Touchpad).
 
 #### Team Arena
 
-Available either as a dedicated pkg (`make -f Makefile.ta`, which auto-sets
+Available either as a dedicated pkg (`make ta`, which auto-sets
 `fs_game missionpack` at boot) or by running it as a mod from the ioQuake 3
 pkg. Either way it needs the four mission-pack paks in
 `/data/ioq3/missionpack/`:
@@ -227,7 +266,7 @@ even when launching from the TA pkg.
 
 #### Open Arena
 
-A standalone pkg (`make -f Makefile.oa`) is provided for the free
+A standalone pkg (`make oa`) is provided for the free
 [OpenArena](https://openarena.ws/) content. Drop the OA paks into
 `/data/ioq3/baseoa/`:
 
@@ -247,11 +286,10 @@ OA is a true standalone -- it does not require `baseq3/` to be present.
   Fixed-function GL1 calls do not exist in GLES 2, so renderergl1 is not used.
 - **Shaders:** compiled at runtime as GLSL ES 1.00 (`#version 100`) via
   `libSceShaccVSH.sprx`. ~62 variants compile in ~16 seconds on first boot.
-  This follows the approach taken by RetroArch's PS4 build: the Piglet GLES2
-  runtime and the ShaccVSH compiler module are loaded from
-  `/data/self/system/common/lib/` -- both modules are extracted from
-  `RetroArch_PS4_r4.pkg` and dropped into place via FTP. They are devkit-only
-  components that are not present on retail FW 9.00 out of the box.
+  The Piglet GLES2 runtime and the ShaccVSH compiler module are loaded from
+  `/data/self/system/common/lib/` -- both are devkit-only components not
+  present on retail FW 9.00 out of the box, so they must be supplied and FTP'd
+  into place (see [Runtime modules](#5-runtime-modules-required-not-included)).
 - **Shadow maps:** depth-only FBOs return `GL_FRAMEBUFFER_UNSUPPORTED` on
   Piglet. Shadow mapping is effectively disabled; the engine falls back to
   no-shadow rendering gracefully.
@@ -263,7 +301,14 @@ OA is a true standalone -- it does not require `baseq3/` to be present.
   IPv4 only. DNS resolution via `sceNetResolverStartNtoa`. Direct IP connect
   works; name resolution may not resolve all hosts.
 - **QVM:** interpreter mode only (no JIT). `vm_interpreted.c` handles all
-  game/UI/cgame bytecode.
+  game/UI/cgame bytecode. `vm_game`, `vm_cgame`, and `vm_ui` are forced to
+  interpreter (`1`) at VM init, overriding any stale value in `q3config.cfg`.
+- **sv_pure:** forced to `0` on PS4. With `sv_pure 1` the server resends the
+  gamestate on every client usercmd until pak checksums are authenticated; PS4's
+  several-second cgame load causes an infinite "Awaiting Snapshot" loop. The
+  override happens at `SV_Init` level because `sv_pure` is `CVAR_SYSTEMINFO`
+  (broadcast by the server in the gamestate packet, overriding any command-line
+  `+set`).
 - **Memory:** Piglet configured for 250 MB system + 512 MB video + 170 MB
   flex. Engine hunk is 256 MB.
 - **Log file:** written to `/data/ioq3/ioquake3log.txt` only in debug builds

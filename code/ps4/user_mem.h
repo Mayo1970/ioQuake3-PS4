@@ -1,13 +1,6 @@
-/*
- * user_mem.h - PS4 custom memory allocator using SceLibcInternal mspace
- *
- * Overrides malloc/free/calloc/realloc globally so that both ioq3 and
- * Piglet (which calls malloc internally) allocate from a large flexible
- * memory region. Without this, SceLibcInternal's default heap is too
- * small and eglGetDisplay fails silently.
- *
- * Based on OsirizX/sm64-port ps4/memory/user_mem.c
- */
+/* user_mem.h -- overrides malloc/free globally onto a large flexible-memory
+   mspace; without it SceLibcInternal's heap is too small and eglGetDisplay
+   fails silently. Based on OsirizX/sm64-port. */
 #ifndef USER_MEM_H
 #define USER_MEM_H
 

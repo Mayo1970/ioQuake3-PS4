@@ -57,9 +57,14 @@ keyname_t keynames[] =
 {
 	{"TAB", K_TAB},
 	{"ENTER", K_ENTER},
+	{"OPTIONS", K_ESCAPE},  /* PS4 DualShock 4 Options button */
 	{"ESCAPE", K_ESCAPE},
 	{"SPACE", K_SPACE},
 	{"BACKSPACE", K_BACKSPACE},
+	{"LS_UP",    K_UPARROW},
+	{"LS_DOWN",  K_DOWNARROW},
+	{"LS_LEFT",  K_LEFTARROW},
+	{"LS_RIGHT", K_RIGHTARROW},
 	{"UPARROW", K_UPARROW},
 	{"DOWNARROW", K_DOWNARROW},
 	{"LEFTARROW", K_LEFTARROW},
@@ -90,6 +95,8 @@ keyname_t keynames[] =
 	{"F14", K_F14},
 	{"F15", K_F15},
 
+	{"RS_UP",    K_PGDN},
+	{"RS_DOWN",  K_DEL},
 	{"INS", K_INS},
 	{"DEL", K_DEL},
 	{"PGDN", K_PGDN},
@@ -106,6 +113,19 @@ keyname_t keynames[] =
 	{"MWHEELUP",	K_MWHEELUP },
 	{"MWHEELDOWN",	K_MWHEELDOWN },
 
+	/* PS4 DualShock 4 button names (checked first, take precedence over JOY_*) */
+	{"CROSS",    K_JOY1},
+	{"CIRCLE",   K_JOY2},
+	{"SQUARE",   K_JOY3},
+	{"TRIANGLE", K_JOY4},
+	{"L1",       K_JOY5},
+	{"R1",       K_JOY6},
+	{"L3",       K_JOY9},
+	{"R3",       K_JOY10},
+	{"TOUCHPAD", K_JOY11},
+	{"L2",       K_JOY7},
+	{"R2",       K_JOY8},
+	/* Generic fallback (for portability) */
 	{"JOY1", K_JOY1},
 	{"JOY2", K_JOY2},
 	{"JOY3", K_JOY3},

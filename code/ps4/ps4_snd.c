@@ -24,13 +24,24 @@
 static int s_audioHandle = -1;
 static int s_audioThreadId = -1;
 static volatile qboolean s_audioRunning = qfalse;
+static volatile qboolean s_audioPaused = qfalse;  /* OSK pauses audio */
 static volatile long long s_dmaTotal = 0;
 static float s_audioBuffer[PS4_AUDIO_GRANULARITY * PS4_AUDIO_CHANNELS];
+
+void PS4_AudioPause(void)  { s_audioPaused = qtrue;  }
+void PS4_AudioResume(void) { s_audioPaused = qfalse; }
 
 /* Feeds int16 DMA samples to SceAudioOut as float [-1,1] (FLOAT_STEREO). */
 static void *PS4_AudioThread(void *arg)
 {
 	while (s_audioRunning) {
+		/* When paused, output silence without touching dma.buffer. */
+		if (s_audioPaused) {
+			memset(s_audioBuffer, 0, sizeof(s_audioBuffer));
+			sceAudioOutOutput(s_audioHandle, s_audioBuffer);
+			continue;
+		}
+
 		if (dma.buffer) {
 			int samples = PS4_AUDIO_GRANULARITY * PS4_AUDIO_CHANNELS;
 			int bufferSamples = dma.samples;
@@ -99,6 +110,7 @@ qboolean SNDDMA_Init(void)
 	}
 
 	s_audioRunning = qtrue;
+	s_audioPaused = qfalse;
 
 	pthread_t thread;
 	int ret = pthread_create(&thread, NULL, PS4_AudioThread, NULL);
@@ -128,6 +140,7 @@ int SNDDMA_GetDMAPos(void)
 void SNDDMA_Shutdown(void)
 {
 	s_audioRunning = qfalse;
+	s_audioPaused = qfalse;
 	sceKernelUsleep(50000); /* let the audio thread exit */
 
 	if (s_audioHandle >= 0) {

@@ -393,13 +393,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	//
 	if ( r_textureMode->modified ) {
 		R_IssuePendingRenderCommands();
-#ifdef __WIIU__
-		/* ANGLE/GX2: only GL_LINEAR works (no mipmap support) */
-		GL_TextureMode( "GL_LINEAR" );
-		ri.Cvar_Set( "r_textureMode", "GL_LINEAR" );
-#else
 		GL_TextureMode( r_textureMode->string );
-#endif
 		r_textureMode->modified = qfalse;
 	}
 

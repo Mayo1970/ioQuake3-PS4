@@ -23,9 +23,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "q_shared.h"
 #include "qcommon.h"
-/* PS4 CD-key auto-generator headers */
+//keygen stuff
 #include <time.h>
 #include <stdlib.h>
+//keygen stuff
 #include <setjmp.h>
 #ifndef _WIN32
 #include <netinet/in.h>
@@ -34,27 +35,23 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <winsock.h>
 #endif
 
+
 int demo_protocols[] =
 { 67, 66, 0 };
 
 #define MAX_NUM_ARGVS	50
 
 #define MIN_DEDICATED_COMHUNKMEGS 1
-#ifdef GEKKO
-/* Wii has 24 MB MEM1 + 52 MB MEM2.  Zone minimum must fit alongside the
- * hunk (24 MB) and other runtime heap within ~70 MB total.
- * The upstream defaults (48 MB zone, 16 MB hunk) overflow all memory. */
-#define DEF_COMHUNKMEGS 24
-#define MIN_COMHUNKMEGS 16
-#define DEF_COMZONEMEGS 8
-#elif defined(__ORBIS__)
-#define DEF_COMHUNKMEGS 256
-#define MIN_COMHUNKMEGS 256
-#define DEF_COMZONEMEGS 48
-#else
-#define DEF_COMHUNKMEGS 16
-#define MIN_COMHUNKMEGS		DEF_COMHUNKMEGS
+#ifdef __ORBIS__
+/* PS4 has 8GB RAM; needs 256MB hunk for pak files + renderer.
+ * Zone kept at 48MB so hunk+zone = 304MB, safely under the 320MB mspace tier. */
+#define MIN_COMHUNKMEGS		256
+#define DEF_COMHUNKMEGS		256
 #define DEF_COMZONEMEGS		48
+#else
+#define MIN_COMHUNKMEGS		128
+#define DEF_COMHUNKMEGS		256
+#define DEF_COMZONEMEGS		64
 #endif
 #define DEF_COMHUNKMEGS_S	XSTRING(DEF_COMHUNKMEGS)
 #define DEF_COMZONEMEGS_S	XSTRING(DEF_COMZONEMEGS)
@@ -88,6 +85,9 @@ cvar_t	*com_showtrace;
 cvar_t	*com_version;
 cvar_t	*com_blood;
 cvar_t	*com_buildScript;	// for automated data building scripts
+#ifdef CINEMATICS_LOGO
+cvar_t	*com_Playlogo;
+#endif
 #ifdef CINEMATICS_INTRO
 cvar_t	*com_introPlayed;
 #endif
@@ -314,8 +314,9 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 	Q_vsnprintf (com_errorMessage, sizeof(com_errorMessage),fmt,argptr);
 	va_end (argptr);
 
-#ifdef GEKKO
-	wii_diag("Com_Error(%d): %s\n", code, com_errorMessage);
+#ifdef __ORBIS__
+	// shit out the error immediately just in case
+	fprintf(stderr, "ERROR: %s\n", com_errorMessage);
 #endif
 
 	if (code != ERR_DISCONNECT && code != ERR_NEED_CD)
@@ -878,24 +879,6 @@ void Z_Free( void *ptr ) {
 	}
 
 	block = (memblock_t *) ( (byte *)ptr - sizeof(memblock_t));
-#ifdef __WIIU__
-	/* Reject pointers that lie outside the zone (e.g. CopyString statics in
-	   .data); freeing them through the zone allocator would corrupt it. */
-	{
-		qboolean inMain = (mainzone != NULL &&
-			(byte*)ptr >= (byte*)mainzone &&
-			(byte*)ptr < (byte*)mainzone + mainzone->size);
-		qboolean inSmall = (smallzone != NULL &&
-			(byte*)ptr >= (byte*)smallzone &&
-			(byte*)ptr < (byte*)smallzone + smallzone->size);
-		if (!inMain && !inSmall) {
-			/* Silently skip -- covers CopyString TAG_STATIC returns and any
-			   stray Sys_ListFiles malloc pointers. No file I/O here to avoid
-			   SD card contention during FS_Startup. */
-			return;
-		}
-	}
-#endif
 	if (block->id != ZONEID) {
 		Com_Error( ERR_FATAL, "Z_Free: freed a pointer without ZONEID" );
 	}
@@ -1447,7 +1430,7 @@ void Com_TouchMemory( void ) {
 	}
 
 	end = Sys_Milliseconds();
-
+	
 	(void)sum; // Suppress warning
 
 	Com_Printf( "Com_TouchMemory: %i msec\n", end - start );
@@ -1587,25 +1570,32 @@ void Com_InitHunkMemory( void ) {
 	int nMinAlloc;
 	char *pMsg = NULL;
 
+	// make sure the file system has allocated and "not" freed any temp blocks
+	// this allows the config and product id files ( journal files too ) to be loaded
+	// by the file system without redunant routines in the file system utilizing different 
+	// memory systems
 	if (FS_LoadStack() != 0) {
 		Com_Error( ERR_FATAL, "Hunk initialization failed. File system load stack not zero");
 	}
 
+	// allocate the stack based hunk allocator
 	cv = Cvar_Get( "com_hunkMegs", DEF_COMHUNKMEGS_S, CVAR_LATCH | CVAR_ARCHIVE );
 	Cvar_SetDescription(cv, "The size of the hunk memory segment");
-#ifdef __ORBIS__
+	
+	#ifdef __ORBIS__
 	if ( cv->integer < MIN_COMHUNKMEGS ) {
 		Cvar_Set( "com_hunkMegs", DEF_COMHUNKMEGS_S );
 		cv = Cvar_Get( "com_hunkMegs", DEF_COMHUNKMEGS_S, CVAR_LATCH | CVAR_ARCHIVE );
 	}
-#endif
+	#endif
 
+	// if we are not dedicated min allocation is 56, otherwise min is 1
 	if (com_dedicated && com_dedicated->integer) {
-		nMinAlloc = 1;
+		nMinAlloc = MIN_DEDICATED_COMHUNKMEGS;
 		pMsg = "Minimum com_hunkMegs for a dedicated server is %i, allocating %i megs.\n";
 	}
 	else {
-		nMinAlloc = 8;
+		nMinAlloc = MIN_COMHUNKMEGS;
 		pMsg = "Minimum com_hunkMegs is %i, allocating %i megs.\n";
 	}
 
@@ -1613,11 +1603,7 @@ void Com_InitHunkMemory( void ) {
 		s_hunkTotal = 1024 * 1024 * nMinAlloc;
 	    Com_Printf(pMsg, nMinAlloc, s_hunkTotal / (1024 * 1024));
 	} else {
-#ifdef __ORBIS__
 		s_hunkTotal = cv->integer * 1024 * 1024;
-#else
-		s_hunkTotal = (cv->integer > 40 ? 40 : cv->integer) * 1024 * 1024;
-#endif
 	}
 
 	s_hunkData = calloc( s_hunkTotal + 31, 1 );
@@ -1700,9 +1686,6 @@ The server calls this before shutting down or loading a new map
 =================
 */
 void Hunk_Clear( void ) {
-#ifdef GEKKO
-	wii_diag("Hunk_Clear: enter\n");
-#endif
 
 #ifndef DEDICATED
 	CL_ShutdownCGame();
@@ -2454,7 +2437,7 @@ void Com_GameRestart(int checksumFeed, qboolean disconnect)
 				
 			CL_Shutdown("Game directory changed", disconnect, qfalse);
 		}
-
+		
 		FS_Restart(checksumFeed);
 	
 		// Clean out any user and VM created cvars
@@ -2536,7 +2519,6 @@ void Com_ReadCDKey( const char *filename ) {
 	}
 }
 
-
 /*
 =================
 Com_AppendCDKey
@@ -2577,52 +2559,74 @@ static void Com_WriteCDKey( const char *filename, const char *ikey ) {
 	fileHandle_t	f;
 	char			fbuffer[MAX_OSPATH];
 	char			key[17];
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__ORBIS__)
 	mode_t			savedumask;
 #endif
 
 	Com_sprintf(fbuffer, sizeof(fbuffer), "%s/q3key", filename);
+	
+	//keygen stuff
+	static char charset[] = "237abcdghjlprstw";      
+  char *randomString = NULL;
+	srand (time(NULL));
+	int length = sizeof(charset)-1;
+  	randomString = malloc(length +1);
+  		if (randomString) {
+  			for (int n = 0;n < length;n++) {
+  				int key = rand() % (int)(sizeof(charset) -1);
+  			randomString[n] = charset[key];
+  			}
+  		randomString[length] = '\0';
+  	}
+  
+  Q_strncpyz( key, randomString, 17 ); //comment out if using a static key
+  //Q_strncpyz( key, ikey, 17 ); //comment out if using a keygen key
+  //keygen stuff
 
-	/* Generate a random 16-char CD key from the q3 charset. */
-	static char charset[] = "237abcdghjlprstw";
-	char *randomString = NULL;
-	srand(time(NULL));
-	int length = sizeof(charset) - 1;
-	randomString = malloc(length + 1);
-	if (randomString) {
-		for (int n = 0; n < length; n++) {
-			int key = rand() % (int)(sizeof(charset) - 1);
-			randomString[n] = charset[key];
-		}
-		randomString[length] = '\0';
+	if(!CL_CDKeyValidate(key, NULL) ) {
+		return; //comment out if using a static key
 	}
 
-	Q_strncpyz(key, randomString, 17);
-	/* Q_strncpyz(key, ikey, 17); -- use this line for a fixed key */
-
-	if (!CL_CDKeyValidate(key, NULL)) {
-		return;
-	}
-
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__ORBIS__)
 	savedumask = umask(0077);
 #endif
-
-	/* Only write the key file if it doesn't already exist. */
-	FILE *quakekey;
-	char kf[32] = {BASEGAME};
-	strcat(kf, "/q3key");
-	if ((quakekey = fopen(kf, "r")) != NULL) {
-		fclose(quakekey);
-	} else {
-		if ((quakekey = fopen(kf, "w")) != NULL) {
-			fprintf(quakekey, "%s", key);
-			fprintf(quakekey, "\n//Key Generated\r\n");
-		}
-		fclose(quakekey);
+	/*
+	f = FS_BaseDir_FOpenFileWrite_HomeState( fbuffer );
+	if ( !f ) {
+		Com_Printf ("Couldn't write CD key to %s.\n", fbuffer );
+		goto out;
 	}
+	*/
+	
+	//no need to keep writing the key if it already exists.
+	FILE *quakekey;
+	char kf[32] = {BASEGAME}; //get the baseq3 directory of ioq3
+  strcat(kf,"/q3key"); //append /q3key to the baseq3 directory path
+	if((quakekey = fopen(kf, "r")) != NULL)
+		{
+    	fclose(quakekey);
+    }
+  else
+  	{
+  		if((quakekey = fopen(kf, "w")) != NULL)
+  			{
+  				fprintf(quakekey,"%s", key);
+  				fprintf(quakekey, "\n//Key Generated\r\n");
+  			}
+  			fclose(quakekey);
+  	}
+  
+  /*
+  FS_Write( key, 16, f ); //comment out if using a static key
+  //FS_Printf( f, "wj7cplhs2gp3ac3a");
+  FS_Printf( f, "\n// generated by quake, do not modify\r\n" );
+  FS_Printf( f, "// Do not give this file to ANYONE.\r\n" );
+  FS_Printf( f, "// id Software and Activision will NOT ask you to send this file to them.\r\n");
+
+	FS_FCloseFile( f );
+	*/
 out:
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__ORBIS__)
 	umask(savedumask);
 #else
 	;
@@ -2806,14 +2810,14 @@ void Com_Init( char *commandLine ) {
 	// init commands and vars
 	//
 	com_altivec = Cvar_Get ("com_altivec", "1", CVAR_ARCHIVE);
-#ifdef __EMSCRIPTEN__
+	#ifdef __EMSCRIPTEN__
 	// Under Emscripten the browser handles throttling the frame rate.
 	// Manual framerate throttling interacts poorly with Emscripten's
 	// browser-driven event loop. So default throttling to off.
 	com_maxfps = Cvar_Get ("com_maxfps", "0", CVAR_ARCHIVE);
-#else
+	#else
 	com_maxfps = Cvar_Get ("com_maxfps", "85", CVAR_ARCHIVE);
-#endif
+	#endif
 	com_blood = Cvar_Get ("com_blood", "1", CVAR_ARCHIVE);
 
 	com_logfile = Cvar_Get ("logfile", "0", CVAR_TEMP );
@@ -2841,6 +2845,10 @@ void Com_Init( char *commandLine ) {
 	com_abnormalExit = Cvar_Get( "com_abnormalExit", "0", CVAR_ROM );
 	com_busyWait = Cvar_Get("com_busyWait", "0", CVAR_ARCHIVE);
 	Cvar_Get("com_errorMessage", "", CVAR_ROM | CVAR_NORESTART);
+
+#ifdef CINEMATICS_LOGO
+	com_Playlogo = Cvar_Get( "playlogo", "1", CVAR_ARCHIVE);
+#endif
 
 #ifdef CINEMATICS_INTRO
 	com_introPlayed = Cvar_Get( "com_introplayed", "0", CVAR_ARCHIVE);
@@ -2890,7 +2898,9 @@ void Com_Init( char *commandLine ) {
 		// if the user didn't give any commands, run default action
 		if ( !com_dedicated->integer ) {
 #ifdef CINEMATICS_LOGO
-			Cbuf_AddText ("cinematic " CINEMATICS_LOGO "\n");
+			if( com_Playlogo->integer ) {
+				Cbuf_AddText ("cinematic " CINEMATICS_LOGO "\n");
+			}
 #endif
 #ifdef CINEMATICS_INTRO
 			if( !com_introPlayed->integer ) {
@@ -3153,16 +3163,6 @@ void Com_Frame( void ) {
 		return;			// an ERR_DROP was thrown
 	}
 
-	/* PS3_FRAME_DIAG: diagnostic logging for first frame */
-#ifdef __PS3__
-	{
-		static int ps3_com_frame_count = 0;
-		ps3_com_frame_count++;
-		if (ps3_com_frame_count == 1)
-			Com_Printf("PS3_FRAME_DIAG: Com_Frame entry (frame 1)\n");
-	}
-#endif
-
 	timeBeforeFirstEvents =0;
 	timeBeforeServer =0;
 	timeBeforeEvents =0;
@@ -3170,10 +3170,7 @@ void Com_Frame( void ) {
 	timeAfter = 0;
 
 	// write config file if anything changed
-	Com_WriteConfiguration();
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_FRAME_DIAG: past WriteConfig\n"); } }
-#endif 
+	Com_WriteConfiguration(); 
 
 	//
 	// main event loop
@@ -3232,13 +3229,7 @@ void Com_Frame( void ) {
 			NET_Sleep(timeVal - 1);
 	} while(Com_TimeVal(minMsec));
 	
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_FRAME_DIAG: past timing loop, calling IN_Frame\n"); } }
-#endif
 	IN_Frame();
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_FRAME_DIAG: IN_Frame done\n"); } }
-#endif
 
 	lastTime = com_frameTime;
 	com_frameTime = Com_EventLoop();
@@ -3263,13 +3254,7 @@ void Com_Frame( void ) {
 		timeBeforeServer = Sys_Milliseconds ();
 	}
 
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_FRAME_DIAG: calling SV_Frame\n"); } }
-#endif
 	SV_Frame( msec );
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_FRAME_DIAG: SV_Frame done\n"); } }
-#endif
 
 	// if "dedicated" has been modified, start up
 	// or shut down the client system.
@@ -3307,13 +3292,7 @@ void Com_Frame( void ) {
 		timeBeforeClient = Sys_Milliseconds ();
 	}
 
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_FRAME_DIAG: calling CL_Frame\n"); } }
-#endif
 	CL_Frame( msec );
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_FRAME_DIAG: CL_Frame done\n"); } }
-#endif
 
 	if ( com_speeds->integer ) {
 		timeAfter = Sys_Milliseconds ();

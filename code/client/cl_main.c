@@ -2117,9 +2117,6 @@ void CL_DownloadsComplete( void ) {
 
 	// let the client game init and load data
 	clc.state = CA_LOADING;
-#if defined(GEKKO) && defined(WII_DEBUG)
-	wii_diag("[cl] CL_DownloadsComplete: state=CA_LOADING\n");
-#endif
 
 	// Pump the loop, this may change gamestate!
 	Com_EventLoop();
@@ -2127,17 +2124,11 @@ void CL_DownloadsComplete( void ) {
 	// if the gamestate was changed by calling Com_EventLoop
 	// then we loaded everything already and we don't want to do it again.
 	if ( clc.state != CA_LOADING ) {
-#if defined(GEKKO) && defined(WII_DEBUG)
-		wii_diag("[cl] CL_DownloadsComplete: state changed to %d after EventLoop, returning\n", clc.state);
-#endif
 		return;
 	}
 
 	// starting to load a map so we get out of full screen ui mode
 	Cvar_Set("r_uiFullScreen", "0");
-#if defined(GEKKO) && defined(WII_DEBUG)
-	wii_diag("[cl] CL_DownloadsComplete: calling CL_FlushMemory\n");
-#endif
 
 	// flush client memory and start loading stuff
 	// this will also (re)load the UI
@@ -2145,15 +2136,9 @@ void CL_DownloadsComplete( void ) {
 	// will be cleared, note that this is done after the hunk mark has been set
 	CL_FlushMemory();
 
-#if defined(GEKKO) && defined(WII_DEBUG)
-	wii_diag("[cl] CL_DownloadsComplete: calling CL_InitCGame\n");
-#endif
 	// initialize the CGame
 	cls.cgameStarted = qtrue;
 	CL_InitCGame();
-#if defined(GEKKO) && defined(WII_DEBUG)
-	wii_diag("[cl] CL_DownloadsComplete: CL_InitCGame done, state=%d\n", clc.state);
-#endif
 
 	// set pure checksums
 	CL_SendPureChecksums();
@@ -2781,10 +2766,6 @@ void CL_ConnectionlessPacket( netadr_t from, msg_t *msg ) {
 
 		clc.state = CA_CONNECTED;
 		clc.lastPacketSentTime = -9999;		// send first packet immediately
-#if defined(GEKKO) && defined(WII_DEBUG)
-		wii_diag("[cl] CA_CONNECTED set — netchan challenge=%d qport=%d\n",
-			clc.netchan.challenge, clc.netchan.qport);
-#endif
 		return;
 	}
 
@@ -3017,22 +2998,16 @@ void CL_Frame ( int msec ) {
 	}
 #endif
 
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: CL_Frame calling UI_SET_ACTIVE_MENU\n"); } }
-#endif
 	if ( cls.cddialog ) {
 		// bring up the cd error dialog if needed
 		cls.cddialog = qfalse;
-		VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_MAIN );
+		VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_NEED_CD );
 	} else	if ( clc.state == CA_DISCONNECTED && !( Key_GetCatcher( ) & KEYCATCH_UI )
 		&& !com_sv_running->integer && uivm ) {
 		// if disconnected, bring up the menu
 		S_StopAllSounds();
 		VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_MAIN );
 	}
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: CL_Frame UI_SET_ACTIVE_MENU done\n"); } }
-#endif
 
 	// if recording an avi, lock to a fixed fps
 	if ( CL_VideoRecording( ) && cl_aviFrameRate->integer && msec) {
@@ -3114,23 +3089,11 @@ void CL_Frame ( int msec ) {
 	// decide on the serverTime to render
 	CL_SetCGameTime();
 
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: calling SCR_UpdateScreen\n"); } }
-#endif
 	// update the screen
 	SCR_UpdateScreen();
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: SCR_UpdateScreen done\n"); } }
-#endif
 
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: calling S_Update\n"); } }
-#endif
 	// update audio
 	S_Update();
-#ifdef __PS3__
-	{ static int _d = 0; if (!_d) { _d=1; Com_Printf("PS3_CL_DIAG: S_Update done\n"); } }
-#endif
 
 #ifdef USE_VOIP
 	CL_CaptureVoip();
@@ -3641,6 +3604,9 @@ void CL_Init( void ) {
 	cl_showMouseRate = Cvar_Get ("cl_showmouserate", "0", 0);
 
 	cl_allowDownload = Cvar_Get ("cl_allowDownload", "0", CVAR_ARCHIVE);
+#ifdef __ORBIS__
+	Cvar_Set("cl_allowDownload", "1");
+#endif
 
 	cl_conXOffset = Cvar_Get ("cl_conXOffset", "0", 0);
 #ifdef __APPLE__

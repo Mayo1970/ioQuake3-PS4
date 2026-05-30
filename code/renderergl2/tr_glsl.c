@@ -56,10 +56,9 @@ static void PS4_InitProgramBinary(void)
 	}
 
 	if (s_glGetProgramBinary && s_glProgramBinary) {
-		ri.Printf(PRINT_ALL, "PS4: shader binary cache enabled (GL_SCE_piglet_shader_binary)\n");
+		ri.Printf(PRINT_ALL, "PS4: shader binary cache enabled\n");
 		mkdir(SHADERCACHE_DIR, 0755);
 	} else {
-		ri.Printf(PRINT_ALL, "PS4: shader binary cache disabled (extension not available)\n");
 		s_glGetProgramBinary = NULL;
 		s_glProgramBinary    = NULL;
 	}

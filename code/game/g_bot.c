@@ -734,6 +734,9 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 	if ( ClientConnect( clientNum, qtrue, qtrue ) ) {
 		return;
 	}
+	
+	trap_SendServerCommand( -1, va("cp \"%s^7 joined the game\"\n", botname) );
+    G_Printf("Bot '%s' connected (skill: %.2f, team: %s)\n", botname, skill, team);
 
 	if( delay == 0 ) {
 		ClientBegin( clientNum );

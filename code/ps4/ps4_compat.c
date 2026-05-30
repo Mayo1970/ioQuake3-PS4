@@ -1,29 +1,17 @@
-/*
- * ps4_compat.c - Compatibility shims for SceLibcInternal
- *
- * When linking with -lSceLibcInternal instead of musl -lc,
- * some GNU/musl-specific symbols are missing. This file provides
- * BSD/PS4-compatible replacements.
- */
+/* ps4_compat.c -- shims for symbols missing when linking -lSceLibcInternal. */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 
-/* __error() is the FreeBSD/PS4 equivalent of __errno_location().
- * It's provided by libkernel and returns int*.
- */
+/* FreeBSD/PS4 equivalent of __errno_location, provided by libkernel. */
 extern int *__error(void);
 
 int *__errno_location(void) {
     return __error();
 }
 
-/* __assert_fail is GNU libc's assert handler.
- * SceLibcInternal provides _Assert() instead.
- * Signature: void __assert_fail(const char *assertion, const char *file,
- *                                unsigned int line, const char *function)
- */
+/* SceLibcInternal provides _Assert() instead of GNU __assert_fail. */
 void __assert_fail(const char *assertion, const char *file,
                    unsigned int line, const char *function) {
     printf("ASSERT FAILED: %s (%s:%u in %s)\n", assertion, file, line,
@@ -31,18 +19,14 @@ void __assert_fail(const char *assertion, const char *file,
     abort();
 }
 
-/* umask() is not available on PS4 (no traditional Unix permission model).
- * ioq3 calls it in Com_WriteCDKey; return a dummy value.
- */
+/* umask absent on PS4; ioq3 calls it in Com_WriteCDKey. */
 typedef uint16_t mode_t;
 mode_t umask(mode_t mask) {
     (void)mask;
     return 0;
 }
 
-/* if_nametoindex() is not available on PS4.
- * Used by NET_SetMulticast6 for IPv6 multicast (not relevant on PS4).
- */
+/* if_nametoindex absent on PS4; used only by IPv6 multicast path. */
 unsigned int if_nametoindex(const char *ifname) {
     (void)ifname;
     return 0;

@@ -29,12 +29,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #ifdef STANDALONEOA
   #define PRODUCT_NAME              "ioq3+oa"
   #define BASEGAME                  "baseoa"
-  #define CLIENT_WINDOW_TITLE       "OpenArena"
-  #define CLIENT_WINDOW_MIN_TITLE   "OA"
+  #define CLIENT_WINDOW_TITLE       "ioquake3"
+  #define CLIENT_WINDOW_MIN_TITLE   "ioq3"
   #define HOMEPATH_NAME_UNIX_LEGACY ".openarena"
   #define HOMEPATH_NAME							"Quake3"
   #define GAMENAME_FOR_MASTER       "Quake3Arena"	// must NOT contain whitespace.  No servers show up if you use "openarena"
-	#define LEGACY_PROTOCOL           1 // OA still uses the legacy protocol
+	#define LEGACY_PROTOCOL           71
 	#define CINEMATICS_LOGO		"idlogo.RoQ"
 	#define PROTOCOL_HANDLER		"quake3"
 	#define CONFIG_PREFIX			"q3config"
@@ -52,7 +52,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
   #define HOMEPATH_NAME_UNIX_LEGACY ".teamarena"
   #define HOMEPATH_NAME							"Quake3"
   #define GAMENAME_FOR_MASTER       "Quake3Arena"	// must NOT contain whitespace.  No servers show up if you use "openarena"
-	#define LEGACY_PROTOCOL           1 // OA still uses the legacy protocol
+	#define LEGACY_PROTOCOL           1
   #define CINEMATICS_LOGO		"idlogo.RoQ"
   #define PROTOCOL_HANDLER		"quake3"
   #define CONFIG_PREFIX			"q3config"

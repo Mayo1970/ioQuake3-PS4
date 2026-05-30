@@ -11,6 +11,10 @@ build/
 *.zip
 *.gp4
 eboot.bin
+
+# Splash/asset zips under fixes/ are required build inputs, not build output
+!fixes/*.zip
+!fixes/**/*.zip
 test_piglet.*
 test.gp4
 
@@ -36,6 +40,11 @@ sce_module/*.prx
 # Users must supply their own legally obtained .pk3 files
 baseq3/*.pk3
 missionpack/*.pk3
+
+# Pak files under fixes/ are our own (no copyrighted content) and are
+# required build inputs, so they must be tracked
+!fixes/*.pk3
+!fixes/**/*.pk3
 
 # Third-party libraries not used by the PS4 build
 # (Makefile only links jpeg-9f and zlib-1.3.1)

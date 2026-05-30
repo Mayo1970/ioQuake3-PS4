@@ -5265,6 +5265,7 @@ static const char *builtinResolutions[ ] =
 	"1152x864",
 	"1280x1024",
 	"1600x1200",
+	"1920x1080",
 	"2048x1536",
 	"856x480",
 	NULL

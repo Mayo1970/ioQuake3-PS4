@@ -40,6 +40,54 @@ void S_Base_StopBackgroundTrack( void );
 #ifdef __ORBIS__
 #include <stdint.h>
 extern void PS4_SetRumble(uint8_t large, uint8_t small, int durationMs);
+
+/* Rumble ramp state for non-blocking attack/decay effects */
+typedef struct {
+    qboolean active;
+    int startTime;
+    int attackMs;
+    int sustainMs;
+    int decayMs;
+    uint8_t startLarge;
+    uint8_t peakLarge;
+    uint8_t small;
+} ps4_ramp_t;
+
+static ps4_ramp_t s_rumbleRamp = {0};
+
+static void PS4_UpdateRumbleRamp(void)
+{
+    if (!s_rumbleRamp.active)
+        return;
+
+    int now = Com_Milliseconds();
+    int elapsed = now - s_rumbleRamp.startTime;
+
+    if (elapsed < s_rumbleRamp.attackMs) {
+        float t = (float)elapsed / (float)s_rumbleRamp.attackMs;
+        uint8_t large = (uint8_t)(s_rumbleRamp.startLarge +
+                                  t * (s_rumbleRamp.peakLarge - s_rumbleRamp.startLarge));
+        PS4_SetRumble(large, s_rumbleRamp.small, 50);
+        return;
+    }
+
+    elapsed -= s_rumbleRamp.attackMs;
+    if (elapsed < s_rumbleRamp.sustainMs) {
+        PS4_SetRumble(s_rumbleRamp.peakLarge, s_rumbleRamp.small, 50);
+        return;
+    }
+
+    elapsed -= s_rumbleRamp.sustainMs;
+    if (elapsed < s_rumbleRamp.decayMs) {
+        float t = (float)elapsed / (float)s_rumbleRamp.decayMs;
+        uint8_t large = (uint8_t)(s_rumbleRamp.peakLarge * (1.0f - t));
+        PS4_SetRumble(large, s_rumbleRamp.small, 50);
+        return;
+    }
+
+    PS4_SetRumble(0, 0, 0);
+    s_rumbleRamp.active = qfalse;
+}
 #endif
 
 snd_stream_t	*s_backgroundStream = NULL;
@@ -100,16 +148,145 @@ static void PS4_RumbleForSfx(const char *name, int entityNum, qboolean localSoun
 
     /* Weapon fire: sounds under sound/weapons/, excluding impact/explode
      * sounds that can also be parented to our entity. Per-weapon overrides
-     * before the generic fallback. */
+     * before the generic fallback.
+     * large motor (left)/small motor(right)
+     * large motor - low frequency/small motor - high frequency)
+     */
     if (!Q_stricmpn(name, "sound/weapons/", 14)) {
         if (strstr(name, "impact") || strstr(name, "explod"))
             return;
         if (strstr(name, "/rocket/")) {
-            PS4_SetRumble(255, 220, 160); /* heavy thump on launch */
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 100;
+            s_rumbleRamp.sustainMs = 400;
+            s_rumbleRamp.decayMs = 900;
+            s_rumbleRamp.startLarge = 0;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 180;
             return;
         }
         if (strstr(name, "/shotgun/")) {
-            PS4_SetRumble(230, 200, 130); /* sharp boom */
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 50;
+            s_rumbleRamp.sustainMs = 50;
+            s_rumbleRamp.decayMs = 300;
+            s_rumbleRamp.startLarge = 255;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 190;
+            return;
+        }
+        if (strstr(name, "/machinegun/")) {
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 50;
+            s_rumbleRamp.sustainMs = 900;
+            s_rumbleRamp.decayMs = 30;
+            s_rumbleRamp.startLarge = 200;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 190;
+            return;
+        }
+        if (strstr(name, "/vulcan/")) {
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 50;
+            s_rumbleRamp.sustainMs = 900;
+            s_rumbleRamp.decayMs = 30;
+            s_rumbleRamp.startLarge = 230;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 190;
+            return;
+        }
+        if (strstr(name, "/railgun/")) {
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 0;
+            s_rumbleRamp.sustainMs = 450;
+            s_rumbleRamp.decayMs = 250;
+            s_rumbleRamp.startLarge = 255;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 255;
+            return;
+        }
+        if (strstr(name, "/nailgun/")) {
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 30;
+            s_rumbleRamp.sustainMs = 450;
+            s_rumbleRamp.decayMs = 200;
+            s_rumbleRamp.startLarge = 255;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 255;
+            return;
+        }
+        if (strstr(name, "/plasma/")) {
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 30;
+            s_rumbleRamp.sustainMs = 70;
+            s_rumbleRamp.decayMs = 50;
+            s_rumbleRamp.startLarge = 190;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 180;
+            return;
+        }
+        if (strstr(name, "/proxmine/")) {
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 0;
+            s_rumbleRamp.sustainMs = 500;
+            s_rumbleRamp.decayMs = 400;
+            s_rumbleRamp.startLarge = 255;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 255;
+            return;
+        }
+        if (strstr(name, "/grenade/")) {
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 20;
+            s_rumbleRamp.sustainMs = 150;
+            s_rumbleRamp.decayMs = 300;
+            s_rumbleRamp.startLarge = 255;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 255;
+            return;
+        }
+        /* Melee doesn't work with rumble yet — no sound file is registered
+         * when the gauntlet fires, so this branch is never reached. */
+        if (strstr(name, "/melee/")) {
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 150;
+            s_rumbleRamp.sustainMs = 300;
+            s_rumbleRamp.decayMs = 100;
+            s_rumbleRamp.startLarge = 100;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 200;
+            return;
+        }
+        if (strstr(name, "/lightning/")) {
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 45;
+            s_rumbleRamp.sustainMs = 500;
+            s_rumbleRamp.decayMs = 100;
+            s_rumbleRamp.startLarge = 210;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 255;
+            return;
+        }
+        if (strstr(name, "/bfg/")) {
+            s_rumbleRamp.active = qtrue;
+            s_rumbleRamp.startTime = Com_Milliseconds();
+            s_rumbleRamp.attackMs = 100;
+            s_rumbleRamp.sustainMs = 400;
+            s_rumbleRamp.decayMs = 50;
+            s_rumbleRamp.startLarge = 150;
+            s_rumbleRamp.peakLarge = 255;
+            s_rumbleRamp.small = 255;
             return;
         }
         PS4_SetRumble(100, 160, 70);
@@ -131,6 +308,7 @@ cvar_t		*s_testsound;
 cvar_t		*s_show;
 cvar_t		*s_mixahead;
 cvar_t		*s_mixPreStep;
+cvar_t		*s_customMusic;
 
 static loopSound_t		loopSounds[MAX_GENTITIES];
 static	channel_t		*freelist = NULL;
@@ -1290,6 +1468,10 @@ void S_Base_Update( void ) {
 
 	// mix some sound
 	S_Update_();
+
+#ifdef __ORBIS__
+	PS4_UpdateRumbleRamp();
+#endif
 }
 
 void S_GetSoundtime(void)
@@ -1449,7 +1631,9 @@ static void S_OpenBackgroundStream( const char *filename ) {
 	}
 
 	if(s_backgroundStream->info.channels != 2 || s_backgroundStream->info.rate != 22050) {
-		Com_Printf(S_COLOR_YELLOW "WARNING: music file %s is not 22k stereo\n", filename );
+		if (!s_customMusic->integer) {
+			Com_Printf(S_COLOR_YELLOW "WARNING: music file %s is not 22k stereo\n", filename );
+		}
 	}
 }
 
@@ -1623,6 +1807,7 @@ qboolean S_Base_Init( soundInterface_t *si ) {
 	s_mixPreStep = Cvar_Get ("s_mixPreStep", "0.05", CVAR_ARCHIVE);
 	s_show = Cvar_Get ("s_show", "0", CVAR_CHEAT);
 	s_testsound = Cvar_Get ("s_testsound", "0", CVAR_CHEAT);
+	s_customMusic = Cvar_Get("s_customMusic", "0", CVAR_TEMP);
 
 	r = SNDDMA_Init();
 

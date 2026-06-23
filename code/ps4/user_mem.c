@@ -1,6 +1,4 @@
-/* user_mem.c -- maps a flexible-memory mspace and overrides malloc/free etc.
-   globally. Piglet mallocs internally during eglGetDisplay and fails silently
-   without a sufficiently large allocator. Based on OsirizX/sm64-port. */
+/* Map mspace and override malloc/free (Piglet needs large heap). */
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
@@ -24,8 +22,7 @@ int malloc_init(void)
 	if (s_mspace)
 		return 0;
 
-	/* ioq3 needs 256MB hunk + 48MB zone + Piglet overhead ~ 320MB minimum.
-	 * Start at 512MB, fall back progressively. */
+	/* Try 512→128MB. ioq3+Piglet needs ~320MB min. */
 	static const size_t try_sizes[] = {
 		0x20000000ULL, /*  512 MB */
 		0x18000000ULL, /*  384 MB */
@@ -52,12 +49,12 @@ int malloc_init(void)
 		                                            "ioq3 User Mem");
 		s_last_map_ret = res;
 		if (res < 0) {
-			/* Unmap the virtual reservation before retrying */
+			/* Unmap before retry. */
 			sceKernelMunmap(s_mem_start, sz);
 			continue;
 		}
 
-		/* Map succeeded -- create mspace */
+		/* Map succeeded. */
 		s_mem_size = sz;
 		s_actual_size = sz;
 		s_mspace = sceLibcMspaceCreate("ioq3 Mspace", s_mem_start,
@@ -71,7 +68,7 @@ int malloc_init(void)
 		return 0;
 	}
 
-	/* All sizes failed */
+	/* All sizes failed. */
 	return s_last_map_ret < 0 ? s_last_map_ret : s_last_reserve_ret;
 }
 

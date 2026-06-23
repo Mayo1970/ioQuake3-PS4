@@ -1,6 +1,4 @@
-/* user_mem.h -- overrides malloc/free globally onto a large flexible-memory
-   mspace; without it SceLibcInternal's heap is too small and eglGetDisplay
-   fails silently. Based on OsirizX/sm64-port. */
+/* Override malloc/free onto large mspace (SceLibcInternal too small). */
 #ifndef USER_MEM_H
 #define USER_MEM_H
 
@@ -11,9 +9,7 @@
 
 #define ORBIS_KERNEL_MAP_FIXED  0x10
 
-/* orbis/_types/kernel.h defines ORBIS_KERNEL_PROT_CPU_RW as VM_PROT_RW,
- * but VM_PROT_RW is not defined in the OpenOrbis headers. Force the
- * correct value (READ|WRITE = 0x01|0x02 = 0x03). */
+/* Force correct PROT_CPU_RW (VM_PROT_RW not in OpenOrbis headers). */
 #undef ORBIS_KERNEL_PROT_CPU_RW
 #define ORBIS_KERNEL_PROT_CPU_RW 0x03
 
@@ -29,7 +25,7 @@ typedef struct OrbisMallocManagedSize {
 	size_t         curUseSz;
 } OrbisMallocManagedSize;
 
-/* SceLibcInternal mspace API */
+/* SceLibcInternal mspace API. */
 OrbisMspace sceLibcMspaceCreate(const char *, void *, size_t, unsigned int);
 int         sceLibcMspaceDestroy(OrbisMspace);
 void       *sceLibcMspaceMalloc(OrbisMspace, size_t);
@@ -43,7 +39,7 @@ int         sceLibcMspaceFree(OrbisMspace, void *);
 int         sceLibcMspaceMallocStats(OrbisMspace, OrbisMallocManagedSize *);
 int         sceLibcMspaceMallocStatsFast(OrbisMspace, OrbisMallocManagedSize *);
 
-/* Kernel memory API */
+/* Kernel memory API. */
 int sceKernelReserveVirtualRange(void **, size_t, int, size_t);
 int sceKernelMapNamedSystemFlexibleMemory(void **, size_t, int, int, const char *);
 int sceKernelReleaseFlexibleMemory(void *, size_t);

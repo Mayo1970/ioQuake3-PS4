@@ -41,6 +41,9 @@ typedef struct {
 	int		cursize;
 	int		readcount;
 	int		bit;				// for bitwise reads and writes
+#ifdef LEGACY_PROTOCOL
+	qboolean	compat;			// true when speaking classic/legacy wire format
+#endif
 } msg_t;
 
 void MSG_Init (msg_t *buf, byte *data, int length);
@@ -90,6 +93,10 @@ int		MSG_LookaheadByte (msg_t *msg);
 
 void MSG_WriteDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *to );
 void MSG_ReadDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *to );
+#ifdef CLASSIC
+void MSG_WriteDeltaUsercmd( msg_t *msg, usercmd_t *from, usercmd_t *to );
+void MSG_ReadDeltaUsercmd( msg_t *msg, usercmd_t *from, usercmd_t *to );
+#endif
 
 void MSG_WriteDeltaEntity( msg_t *msg, struct entityState_s *from, struct entityState_s *to
 						   , qboolean force );
@@ -244,8 +251,12 @@ PROTOCOL
 ==============================================================
 */
 
+#ifdef CLASSIC
+#define	PROTOCOL_VERSION	43
+#else
 #define	PROTOCOL_VERSION	71
 // 1.31 - 67
+#endif
 
 // maintain a list of compatible protocols for demo playing
 // NOTE: that stuff only works with two digits protocols
@@ -263,16 +274,19 @@ extern int demo_protocols[];
 	#ifdef STANDALONEOA
 		#define AUTHORIZE_SERVER_NAME	"dpmaster.deathmask.net"
 		#define PROTOCOL_LEGACY_VERSION	71
-  #endif
-  #ifndef AUTHORIZE_SERVER_NAME
-    #define	AUTHORIZE_SERVER_NAME	"authorize.quake3arena.com"
-  #endif
-  #ifndef PROTOCOL_LEGACY_VERSION
-  	#define PROTOCOL_LEGACY_VERSION	68
-  #endif
-  #ifndef PORT_AUTHORIZE
-  #define	PORT_AUTHORIZE		27952
-  #endif
+	#elif defined(CLASSIC)
+		// Primary protocol IS 43; legacy version matches so clc.compat fires automatically.
+		#define PROTOCOL_LEGACY_VERSION	43
+	#endif
+	#ifndef AUTHORIZE_SERVER_NAME
+		#define	AUTHORIZE_SERVER_NAME	"authorize.quake3arena.com"
+	#endif
+	#ifndef PROTOCOL_LEGACY_VERSION
+		#define PROTOCOL_LEGACY_VERSION	68
+	#endif
+	#ifndef PORT_AUTHORIZE
+		#define	PORT_AUTHORIZE		27952
+	#endif
 #endif
 
 #define	PORT_MASTER			27950
@@ -658,7 +672,8 @@ long		FS_FOpenFileRead( const char *qpath, fileHandle_t *file, qboolean uniqueFI
 // It is generally safe to always set uniqueFILE to true, because the majority of
 // file IO goes through FS_ReadFile, which Does The Right Thing already.
 
-int		FS_FileIsInPAK(const char *filename, int *pChecksum );
+int		FS_FileIsInPAK(const char *filename, qboolean compat, int *pChecksum );
+int		FS_FileIsInPAKNonCompat(const char *filename, int *pChecksum );
 // returns 1 if a file is in the PAK file, otherwise -1
 
 int		FS_Write( const void *buffer, int len, fileHandle_t f );
@@ -714,7 +729,7 @@ const char *FS_LoadedPakPureChecksums( void );
 
 const char *FS_ReferencedPakNames( void );
 const char *FS_ReferencedPakChecksums( void );
-const char *FS_ReferencedPakPureChecksums( void );
+const char *FS_ReferencedPakPureChecksums( qboolean compat );
 // Returns a space separated string containing the checksums of all loaded 
 // AND referenced pk3 files. Servers with sv_pure set will get this string 
 // back from clients for pure validation 

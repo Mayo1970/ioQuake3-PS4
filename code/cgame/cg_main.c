@@ -201,6 +201,7 @@ vmCvar_t	cg_recordSPDemo;
 vmCvar_t	cg_recordSPDemoName;
 vmCvar_t	cg_obeliskRespawnDelay;
 #endif
+vmCvar_t	cg_customAudio;
 
 typedef struct {
 	vmCvar_t	*vmCvar;
@@ -302,6 +303,7 @@ static cvarTable_t cvarTable[] = {
 	{ &cg_obeliskRespawnDelay, "g_obeliskRespawnDelay", "10", CVAR_SERVERINFO},
 	{ &cg_hudFiles, "cg_hudFiles", "ui/hud.txt", CVAR_ARCHIVE},
 #endif
+	{ &cg_customAudio, "custom_audio", "0", CVAR_ARCHIVE},
 	{ &cg_cameraOrbit, "cg_cameraOrbit", "0", CVAR_CHEAT},
 	{ &cg_cameraOrbitDelay, "cg_cameraOrbitDelay", "50", CVAR_ARCHIVE},
 	{ &cg_timescaleFadeEnd, "cg_timescaleFadeEnd", "1", 0},
@@ -1218,9 +1220,9 @@ qboolean CG_LoadCustomMusic( void ) {
     }
 
     // Build file paths using cleaned mapname
-    Com_sprintf(autoexecPath, sizeof(autoexecPath), "autoexec_%s.cfg", mapnameBase);
-    Com_sprintf(playlistPath, sizeof(playlistPath), "playlist_%s.cfg", mapnameBase);
-    Com_sprintf(playlistPath2, sizeof(playlistPath2), "playlist.cfg");
+    Com_sprintf(autoexecPath, sizeof(autoexecPath), "music/autoexec_%s.cfg", mapnameBase);
+    Com_sprintf(playlistPath, sizeof(playlistPath), "music/playlist_%s.cfg", mapnameBase);
+    Com_sprintf(playlistPath2, sizeof(playlistPath2), "music/playlist.cfg");
     
     // DEBUG
     ///CG_Printf(S_COLOR_CYAN "DEBUG: cgs.mapname = '%s'\n", cgs.mapname);
@@ -1365,6 +1367,20 @@ parse_playlist:
 
     // Playlist was empty
     return qfalse;
+}
+
+/*
+==================
+CG_PlaylistNext_f
+
+Console command: playlist_next
+Forces advance to next song in the playlist.
+==================
+*/
+void CG_PlaylistNext_f( void ) {
+    if ( !cg_customAudio.integer )
+        return;
+    CG_LoadCustomMusic();
 }
 
 /*
@@ -2095,7 +2111,12 @@ void CG_Init( int serverMessageNum, int serverCommandSequence, int clientNum ) {
 
 	// check version
 	s = CG_ConfigString( CS_GAME_VERSION );
+#ifdef CLASSIC
+	// Q3 1.16n servers don't set CS_GAME_VERSION; skip the check when empty
+	if ( *s && strcmp( s, GAME_VERSION ) ) {
+#else
 	if ( strcmp( s, GAME_VERSION ) ) {
+#endif
 		CG_Error( "Client/Server game mismatch: %s/%s", GAME_VERSION, s );
 	}
 

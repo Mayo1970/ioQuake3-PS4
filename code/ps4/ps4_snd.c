@@ -17,8 +17,7 @@
 #define PS4_AUDIO_GRANULARITY 256
 #define PS4_AUDIO_BUFFER_SAMPLES (PS4_AUDIO_GRANULARITY * 4)
 
-/* 2^21 ≈ 44s at 48kHz; must outlast shader compile (~16s) or
-   S_GetSoundtime's wrap detection misses wraps and cinematic audio breaks. */
+/* 2^21 ≈ 44s at 48kHz; outlasts shader compile (avoids wrap underrun). */
 #define PS4_DMA_BUFFER_SAMPLES (1 << 21)
 
 static int s_audioHandle = -1;
@@ -31,11 +30,11 @@ static float s_audioBuffer[PS4_AUDIO_GRANULARITY * PS4_AUDIO_CHANNELS];
 void PS4_AudioPause(void)  { s_audioPaused = qtrue;  }
 void PS4_AudioResume(void) { s_audioPaused = qfalse; }
 
-/* Feeds int16 DMA samples to SceAudioOut as float [-1,1] (FLOAT_STEREO). */
+/* DMA→float audio output thread. */
 static void *PS4_AudioThread(void *arg)
 {
 	while (s_audioRunning) {
-		/* When paused, output silence without touching dma.buffer. */
+		/* When paused output silence. */
 		if (s_audioPaused) {
 			memset(s_audioBuffer, 0, sizeof(s_audioBuffer));
 			sceAudioOutOutput(s_audioHandle, s_audioBuffer);
@@ -65,7 +64,7 @@ qboolean SNDDMA_Init(void)
 {
 	Com_Printf("PS4 Audio: Initializing...\n");
 
-	/* sceAudioOutInit required before Open. 0x8026000E = ALREADY_INIT (ignore). */
+	/* Init audio system. 0x8026000E = already-init (ok). */
 	{
 		int ret = sceAudioOutInit();
 		Com_Printf("PS4 Audio: sceAudioOutInit ret=0x%08X\n", (unsigned)ret);
@@ -76,7 +75,7 @@ qboolean SNDDMA_Init(void)
 
 	Com_Printf("PS4 Audio: opening port (userId=0xFF, FLOAT_STEREO)\n");
 
-	/* 0xFF = USER_ID_SYSTEM; accepted by PORT_TYPE_MAIN on retail FW 9.00. */
+	/* Open audio output. */
 	s_audioHandle = sceAudioOutOpen(
 		0xFF,
 		ORBIS_AUDIO_OUT_PORT_TYPE_MAIN,

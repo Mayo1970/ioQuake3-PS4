@@ -1,7 +1,6 @@
 # ioquake3-PS4
 
-A port of [ioQuake3](https://github.com/ioquake/ioq3) to the PlayStation 4,
-using the [OpenOrbis](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain)
+A port of [ioQuake3](https://github.com/ioquake/ioq3) to the PlayStation 4, using the [OpenOrbis](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain)
 homebrew toolchain and Piglet (Sony's built-in GLES 2.0 / EGL 1.4) for rendering.
 
 ## Prerequisites (Windows)
@@ -50,13 +49,15 @@ firmware. You must supply both yourself and FTP them to
 
 ## Building
 
-Three pkg variants are produced from the same unified Makefile:
+Four pkg variants are produced from the same unified Makefile:
 
 ```bash
 make                  # ioQuake 3            (BASEGAME=baseq3,  TITLE_ID=QUAK03000)
 make ta               # Quake 3: Team Arena  (BASEGAME=baseq3 + auto fs_game=missionpack,
                       #                       TITLE_ID=QUAK03001)
 make oa               # Open Arena           (BASEGAME=baseoa,  TITLE_ID=QUAK03002)
+make classic          # Quake 3 Classic      (BASEGAME=baseq3,  TITLE_ID=QUAK03003,
+                      #                       protocol 43 — Dreamcast crossplay)
 make all-flavors      # Build all three release pkgs in sequence
 make debug            # Debug build of ioQuake 3 (writes /data/ioq3/ioquake3log.txt)
 make clean            # Remove all build artifacts
@@ -68,7 +69,7 @@ never requires `make clean`. Release and debug binaries can coexist.
 `make all-flavors` builds all three packages in one pass.
 
 **Output:** `IV0000-QUAK03000_00-IOQ3PS4PORT00000.pkg` (and `QUAK03001` /
-`QUAK03002` for TA / OA).
+`QUAK03002`/ `QUAK03003` for TA / OA / CLASSIC).
 
 Team Arena is a mod that layers on top of `baseq3`, not a standalone game --
 the TA pkg auto-injects `+set fs_game missionpack` at boot, so both
@@ -90,13 +91,14 @@ the next build. For example:
 ```
 fixes/
 ├── baseq3/
-│   ├── pak9-ps4s.pk3        ← shipped UI / control patches
-│   └── pak10.pk3            ← drop in your own override pak, it just works
+│   ├── pak9-ps4.pk3        ← shipped UI / control patches
+│   ├── zpack-classic.pk3   ← shipped UI / control patches adapted for Classic build (other builds will ignore this)
+│   └── pak10.pk3           ← drop in your own override pak, it just works
 ├── missionpack/
-│   └── pak9-ps4s.pk3
+│   └── pak9-ps4.pk3
 ├── baseoa/
-│   └── pak9-ps4s.pk3
-├── splash.zip               ← boot splash (Quake 3)
+│   └── 
+├── splash.zip               ← boot splash (Quake 3 / CLASSIC)
 ├── ta.zip                   ← boot splash (Team Arena)
 └── oa.zip                   ← boot splash (Open Arena)
 ```
@@ -278,6 +280,14 @@ A standalone pkg (`make oa`) is provided for the free
 
 OA is a true standalone -- it does not require `baseq3/` to be present.
 
+#### Quake 3 Classic (Dreamcast crossplay)
+
+`make classic` builds a fourth pkg that speaks **Quake III Arena protocol 43** -- the protocol used by the original 1999 Dreamcast release. Modern ioQuake3 uses protocol 68 and is not compatible with Dreamcast servers, so this variant exists purely to enable crossplay between PS4 and the small community still running Dreamcast-era servers. The Internet server browser points at `dc.dreamcast-talk.com` out of the box.
+
+Only `pak0`–`pak2` are loaded (byte-identical to the Dreamcast data files); higher paks and PS4-specific paks are excluded so their checksums do not interfere with the server authentication handshake.
+
+To play on Dreamcast community servers you also need `dc-mappack.pk3`, which contains the maps in rotation on those servers. Download it from [lvlworld.com](https://lvlworld.com/download/id:999) and place it in `/data/ioq3/baseq3/`.
+
 ---
 
 ## Technical notes
@@ -313,6 +323,20 @@ OA is a true standalone -- it does not require `baseq3/` to be present.
   flex. Engine hunk is 256 MB.
 - **Log file:** written to `/data/ioq3/ioquake3log.txt` only in debug builds
   (`make debug` / `make DEBUG=1`). Release builds produce no log file.
+
+---
+
+## Credits
+
+- **[ioQuake3](https://github.com/ioquake/ioq3)** -- the upstream engine this port is based on.
+- **[OpenOrbis PS4 Toolchain](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain)** -- LLVM-based toolchain, ELF linker, and PkgTool used to produce PS4 pkgs.
+- **[Lilium Arena Classic](https://github.com/clover-moe/lilium-arena-classic)** (clover-moe / clover-leaf) -- reverse-engineered Quake III Arena protocol-43 / Dreamcast compatibility layer. The CLASSIC build's pure-checksum exchange, `cl_paks` format, server-message parse fixes, and `FS_ReferencedPakPureChecksums` compat mode are derived from this work.
+
+---
+
+## AI disclosure
+
+Parts of this port were developed with the assistance of **Claude** (Anthropic). AI was used for code generation, debugging, porting guidance, and documentation. All AI-generated code was reviewed and tested on hardware before inclusion.
 
 ---
 

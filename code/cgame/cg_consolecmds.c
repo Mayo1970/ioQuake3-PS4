@@ -29,6 +29,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 extern menuDef_t *menuScoreboard;
 #endif
 
+void CG_PlaylistNext_f( void );
+
 
 
 void CG_TargetCommand_f( void ) {
@@ -500,7 +502,8 @@ static consoleCommand_t	commands[] = {
 #endif
 	{ "startOrbit", CG_StartOrbit_f },
 	//{ "camera", CG_Camera_f },
-	{ "loaddeferred", CG_LoadDeferredPlayers }	
+	{ "loaddeferred", CG_LoadDeferredPlayers },
+	{ "playlist_next", CG_PlaylistNext_f }
 };
 
 

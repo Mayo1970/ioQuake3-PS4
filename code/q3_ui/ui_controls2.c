@@ -282,7 +282,7 @@ static configcvar_t g_configcvars[] =
 	{"joy_threshold",	0,					0},
 	{"m_filter",		0,					0},
 	{"cl_freelook",		0,					0},
-	{"ps4_rumbleEnable",		0,					0},
+	{"ps3_rumbleEnable",		0,					0},
 	{"cg_zoomfov",      0,          0},
 	{NULL,				0,					0}
 };
@@ -791,7 +791,7 @@ static void Controls_GetConfig( void )
     s_controls.sensitivity.curvalue  = UI_ClampCvar( 2, 30, Controls_GetCvarValue( "sensitivity" ) );
     s_controls.joyenable.curvalue    = UI_ClampCvar( 0, 1, Controls_GetCvarValue( "in_joystick" ) );
     s_controls.freelook.curvalue     = UI_ClampCvar( 0, 1, Controls_GetCvarValue( "cl_freelook" ) );
-    s_controls.rumbleenable.curvalue = UI_ClampCvar( 0, 1, Controls_GetCvarValue( "ps4_rumbleEnable" ) );
+    s_controls.rumbleenable.curvalue = UI_ClampCvar( 0, 1, Controls_GetCvarValue( "ps3_rumbleEnable" ) );
 
     /* joy_threshold: read directly from cvar string */
     trap_Cvar_VariableStringBuffer("joy_threshold", buf, sizeof(buf));
@@ -865,7 +865,7 @@ static void Controls_SetConfig( void )
     trap_Cvar_SetValue( "sensitivity", s_controls.sensitivity.curvalue );
     trap_Cvar_SetValue( "in_joystick", s_controls.joyenable.curvalue );
     trap_Cvar_SetValue( "cl_freelook", s_controls.freelook.curvalue );
-    trap_Cvar_SetValue( "ps4_rumbleEnable", s_controls.rumbleenable.curvalue );
+    trap_Cvar_SetValue( "ps3_rumbleEnable", s_controls.rumbleenable.curvalue );
 
     /* Joystick threshold slider (0-20 steps → 0.0045-0.0145) */
     threshold = 0.0045f + (s_controls.joythreshold.curvalue / 20.0f) * 0.01f;  /* CHANGED: multiply by 0.01 */
@@ -946,7 +946,7 @@ static void Controls_SetDefaults( void )
     trap_Cvar_SetValue("cg_zoomfov", Controls_GetCvarValue("cg_zoomfov"));
   }
 	s_controls.freelook.curvalue     = Controls_GetCvarDefault( "cl_freelook" );
-	s_controls.rumbleenable.curvalue = Controls_GetCvarDefault( "ps4_rumbleEnable" );
+	s_controls.rumbleenable.curvalue = Controls_GetCvarDefault( "ps3_rumbleEnable" );
 }
 
 /*

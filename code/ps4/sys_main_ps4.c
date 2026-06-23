@@ -5,6 +5,8 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
 
 #include <orbis/libkernel.h>
 #include <orbis/Sysmodule.h>
@@ -26,6 +28,24 @@ void PS4_ApplyDefaultBindings(void);
 
 /* Not declared in OpenOrbis headers. */
 int sceKernelReserveVirtualRange(void **addr, size_t len, int flags, size_t alignment);
+
+static bool file_exists(const char *filename)
+{
+	struct stat buffer;
+	return stat(filename, &buffer) == 0 ? true : false;
+}
+
+/* Debug storage for pak sync (populated before Com_Init, printed after). */
+typedef struct {
+	char srcPath[256];
+	char dstPath[256];
+	long srcSize;
+	long dstSize;
+	qboolean srcExists;
+	qboolean dstExists;
+} fixesDebug_t;
+
+static fixesDebug_t fixesDebug;
 
 void Sys_Init(void)
 {
@@ -59,7 +79,7 @@ void Sys_Print(const char *msg)
 	CON_Print(msg);
 }
 
-/* Blocking dialog; ensures the error is visible before the app exits. */
+/* Blocking error dialog (ensures visibility before exit). */
 void Sys_ErrorDialog(const char *error)
 {
 	Com_Printf("ERROR: %s\n", error);
@@ -94,6 +114,22 @@ void Sys_ErrorDialog(const char *error)
 	sceMsgDialogTerminate();
 }
 
+/* Get file size via open+seek (avoids stat() unreliability on PKG). */
+static long PS4_GetFileSize(const char *path)
+{
+	FILE *f;
+	long size;
+
+	f = fopen(path, "rb");
+	if (!f)
+		return -1;
+
+	fseek(f, 0, SEEK_END);
+	size = ftell(f);
+	fclose(f);
+	return size;
+}
+
 static void PS4_CopyFile(const char *src, const char *dst)
 {
 	FILE *in, *out;
@@ -102,13 +138,11 @@ static void PS4_CopyFile(const char *src, const char *dst)
 
 	in = fopen(src, "rb");
 	if (!in) {
-		CON_Print("  fixes: can't open src: "); CON_Print(src); CON_Print("\n");
 		return;
 	}
 	out = fopen(dst, "wb");
 	if (!out) {
 		fclose(in);
-		CON_Print("  fixes: can't open dst: "); CON_Print(dst); CON_Print("\n");
 		return;
 	}
 	while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
@@ -132,19 +166,33 @@ static void PS4_MakePath(const char *path)
 	mkdir(tmp, 0755);
 }
 
-/* Recursively copies src/ into dst/, mirroring the directory tree. */
-static qboolean PS4_CopyDir(const char *src, const char *dst)
+/* Compare src/dst sizes (fopen/seek, not stat). Returns qtrue if copy needed. */
+static qboolean PS4_FileNeedsUpdate(const char *src, const char *dst)
+{
+	long srcSize = PS4_GetFileSize(src);
+	long dstSize = PS4_GetFileSize(dst);
+
+	if (srcSize < 0)
+		return qfalse;  /* source missing, skip */
+
+	if (dstSize < 0)
+		return qtrue;   /* dest missing, must copy */
+
+	return srcSize != dstSize;
+}
+
+/* Recursively sync src→dst (copy changed/missing only, never delete). Returns count. */
+static int PS4_SyncDir(const char *src, const char *dst)
 {
 	DIR *d;
 	struct dirent *ent;
 	char srcpath[256], dstpath[256];
 	struct stat st;
-	qboolean ok = qtrue;
+	int copied = 0;
 
 	d = opendir(src);
 	if (!d) {
-		CON_Print("  fixes: can't open dir: "); CON_Print(src); CON_Print("\n");
-		return qfalse;
+		return 0;
 	}
 
 	PS4_MakePath(dst);
@@ -152,61 +200,84 @@ static qboolean PS4_CopyDir(const char *src, const char *dst)
 	while ((ent = readdir(d)) != NULL) {
 		if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
 			continue;
+
 		snprintf(srcpath, sizeof(srcpath), "%s/%s", src, ent->d_name);
 		snprintf(dstpath, sizeof(dstpath), "%s/%s", dst, ent->d_name);
+
 		if (stat(srcpath, &st) != 0)
 			continue;
+
 		if (S_ISDIR(st.st_mode)) {
-			if (!PS4_CopyDir(srcpath, dstpath))
-				ok = qfalse;
+			copied += PS4_SyncDir(srcpath, dstpath);
 		} else {
-			CON_Print("  fixes: "); CON_Print(srcpath); CON_Print(" -> "); CON_Print(dstpath); CON_Print("\n");
-			PS4_CopyFile(srcpath, dstpath);
+			if (PS4_FileNeedsUpdate(srcpath, dstpath)) {
+				PS4_CopyFile(srcpath, dstpath);
+				copied++;
+			}
 		}
 	}
 	closedir(d);
-	return ok;
+
+	return copied;
 }
 
-static void PS4_InstallFixes(void)
+/* Install fixes (copies only). Returns file count. */
+static int PS4_InstallFixes(void)
+{
+	int copied = 0;
+#if defined(STANDALONEOA)
+	copied += PS4_SyncDir("/app0/fixes/baseoa",      "/data/ioq3/baseoa");
+#elif defined(STANDALONETA)
+	copied += PS4_SyncDir("/app0/fixes/baseq3",      "/data/ioq3/baseq3");
+	copied += PS4_SyncDir("/app0/fixes/missionpack", "/data/ioq3/missionpack");
+#else
+	copied += PS4_SyncDir("/app0/fixes/baseq3",      "/data/ioq3/baseq3");
+#endif
+	return copied;
+}
+
+/* Gather pak9 debug info pre-Com_Init. */
+static void PS4_DebugFixesCheck(void)
 {
 #if defined(STANDALONEOA)
-	const char *marker = "/data/ioq3/fixes_installed_oa.txt";
+	Q_strncpyz(fixesDebug.srcPath, "/app0/fixes/baseoa/pak9-ps4.pk3", sizeof(fixesDebug.srcPath));
+	Q_strncpyz(fixesDebug.dstPath, "/data/ioq3/baseoa/pak9-ps4.pk3", sizeof(fixesDebug.dstPath));
 #elif defined(STANDALONETA)
-	const char *marker = "/data/ioq3/fixes_installed_ta.txt";
+	Q_strncpyz(fixesDebug.srcPath, "/app0/fixes/baseq3/pak9-ps4.pk3", sizeof(fixesDebug.srcPath));
+	Q_strncpyz(fixesDebug.dstPath, "/data/ioq3/baseq3/pak9-ps4.pk3", sizeof(fixesDebug.dstPath));
+#elif defined(CLASSIC)
+	Q_strncpyz(fixesDebug.srcPath, "/app0/fixes/baseq3/pak9-ps4.pk3", sizeof(fixesDebug.srcPath));
+	Q_strncpyz(fixesDebug.dstPath, "/data/ioq3/baseq3/pak9-ps4.pk3", sizeof(fixesDebug.dstPath));
 #else
-	const char *marker = "/data/ioq3/fixes_installed_q3.txt";
-#endif
-	FILE *f;
-
-	/* Already installed on a previous boot. */
-	f = fopen(marker, "r");
-	if (f) { fclose(f); return; }
-
-	CON_Print("fixes: installing...\n");
-
-	PS4_MakePath("/data/ioq3");
-
-	qboolean ok = qtrue;
-#if defined(STANDALONEOA)
-	if (!PS4_CopyDir("/app0/fixes/baseoa",      "/data/ioq3/baseoa"))      ok = qfalse;
-#elif defined(STANDALONETA)
-	if (!PS4_CopyDir("/app0/fixes/baseq3",      "/data/ioq3/baseq3"))      ok = qfalse;
-	if (!PS4_CopyDir("/app0/fixes/missionpack", "/data/ioq3/missionpack")) ok = qfalse;
-#else
-	if (!PS4_CopyDir("/app0/fixes/baseq3",      "/data/ioq3/baseq3"))      ok = qfalse;
+	Q_strncpyz(fixesDebug.srcPath, "/app0/fixes/baseq3/pak9-ps4.pk3", sizeof(fixesDebug.srcPath));
+	Q_strncpyz(fixesDebug.dstPath, "/data/ioq3/baseq3/pak9-ps4.pk3", sizeof(fixesDebug.dstPath));
 #endif
 
-	if (ok) {
-		f = fopen(marker, "w");
-		if (f) { fputs("1", f); fclose(f); }
-		CON_Print("fixes: done.\n");
-	} else {
-		CON_Print("fixes: errors during install, will retry next boot.\n");
-	}
+	fixesDebug.srcSize = PS4_GetFileSize(fixesDebug.srcPath);
+	fixesDebug.dstSize = PS4_GetFileSize(fixesDebug.dstPath);
+	fixesDebug.srcExists = (fixesDebug.srcSize >= 0);
+	fixesDebug.dstExists = (fixesDebug.dstSize >= 0);
 }
 
-/* Load sprx modules via the sandbox path (proven working on retail FW 9.00). */
+/* Print pak9 debug info post-Com_Init. */
+static void PS4_DebugFixesPrint(void)
+{
+	Com_Printf("--- Fixes Debug ---\n");
+	Com_Printf("SRC: %s size=%ld exists=%s\n",
+		fixesDebug.srcPath, fixesDebug.srcSize,
+		fixesDebug.srcExists ? "yes" : "no");
+	Com_Printf("DST: %s size=%ld exists=%s\n",
+		fixesDebug.dstPath, fixesDebug.dstSize,
+		fixesDebug.dstExists ? "yes" : "no");
+
+	if (fixesDebug.srcExists && fixesDebug.dstExists) {
+		Com_Printf("Compare: %s\n",
+			(fixesDebug.srcSize == fixesDebug.dstSize) ? "SKIP" : "COPY");
+	}
+	Com_Printf("--- End Debug ---\n");
+}
+
+/* Load sprx modules via sandbox path. */
 static void PS4_LoadSystemModules(void)
 {
 	const char *sandboxWord;
@@ -254,6 +325,7 @@ int main(int argc, char **argv)
 {
 	char commandLine[MAX_STRING_CHARS] = {0};
 	int i;
+	int fixesCopied;
 
 	CON_Init();
 
@@ -302,19 +374,27 @@ int main(int argc, char **argv)
 		PS4_ADDARG(commandLine, sizeof(commandLine), "+set fs_game missionpack");
 #endif
 
-	/* Default player name = PSN username. Always set so OA/TA don't fall back
-	 * to "UnnamedPlayer". The engine will override with the saved name from
-	 * q3config.cfg after Com_Init, so returning players keep their custom name. */
-	if (!strstr(commandLine, "+set name") && !strstr(commandLine, "+seta name")) {
-		OrbisUserServiceUserId userId = -1;
-		sceUserServiceGetInitialUser(&userId);
-		if (userId >= 0) {
-			char psName[ORBIS_USER_SERVICE_MAX_USER_NAME_LENGTH + 1];
-			memset(psName, 0, sizeof(psName));
-			if (sceUserServiceGetUserName(userId, psName, sizeof(psName)) == 0 && psName[0]) {
-				char nameArg[64];
-				snprintf(nameArg, sizeof(nameArg), "+set name \"%s\"", psName);
-				PS4_ADDARG(commandLine, sizeof(commandLine), nameArg);
+	/* Default player name = PSN username. Only set on first boot (no config file yet)
+	 * so returning players keep their saved name from q3config.cfg. */
+	{
+#if defined(STANDALONETA) || defined(MISSIONPACK)
+		const char *cfgPath = "/data/ioq3/missionpack/q3config.cfg";
+#elif defined(STANDALONEOA)
+		const char *cfgPath = "/data/ioq3/baseoa/q3config.cfg";
+#else
+		const char *cfgPath = "/data/ioq3/baseq3/q3config.cfg";
+#endif
+		if (!file_exists(cfgPath) && !strstr(commandLine, "+set name") && !strstr(commandLine, "+seta name")) {
+			OrbisUserServiceUserId userId = -1;
+			sceUserServiceGetInitialUser(&userId);
+			if (userId >= 0) {
+				char psName[ORBIS_USER_SERVICE_MAX_USER_NAME_LENGTH + 1];
+				memset(psName, 0, sizeof(psName));
+				if (sceUserServiceGetUserName(userId, psName, sizeof(psName)) == 0 && psName[0]) {
+					char nameArg[64];
+					snprintf(nameArg, sizeof(nameArg), "+set name \"%s\"", psName);
+					PS4_ADDARG(commandLine, sizeof(commandLine), nameArg);
+				}
 			}
 		}
 	}
@@ -355,10 +435,21 @@ int main(int argc, char **argv)
 	extern void PS4_NetInit(void);
 	PS4_NetInit();
 
-	PS4_InstallFixes();
+	PS4_DebugFixesCheck();   /* gather data before install */
+	
+	fixesCopied = PS4_InstallFixes();
 
 	Com_Init(commandLine);
+	
+	PS4_DebugFixesPrint();   /* print after console is ready */
+	
+	if (fixesCopied > 0)
+		Com_Printf("%d fix(es) were updated this session.\n", fixesCopied);
+	else
+		Com_Printf("Fixes are up to date.\n");
+	
 	PS4_ApplyDefaultBindings();
+	
 	NET_Init();
 
 	while (1) {

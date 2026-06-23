@@ -5,7 +5,8 @@
 #   make            -- Standard Quake 3 build
 #   make ta         -- Team Arena build
 #   make oa         -- OpenArena build
-#   make all-flavors-- Build all three (Q3, TA, OA) release packages
+#   make classic    -- Quake 3 Classic build (legacy protocol 43 for Dreamcast)
+#   make all-flavors-- Build all four (Q3, TA, OA, Classic) release packages
 #   make release    -- Explicit release build
 #   make debug      -- Debug build
 # ============================================================================
@@ -14,12 +15,15 @@
 # Flavor selection (default: q3, set TA=1 or OA=1, or run `make ta` / `make oa`)
 # ============================================================================
 
-# Allow `make ta` and `make oa` as shorthands
+# Allow `make ta`, `make oa`, `make classic` as shorthands
 ifeq ($(MAKECMDGOALS),ta)
     TA := 1
 endif
 ifeq ($(MAKECMDGOALS),oa)
     OA := 1
+endif
+ifeq ($(MAKECMDGOALS),classic)
+    CLASSIC := 1
 endif
 
 # Determine flavor (q3 is default)
@@ -37,6 +41,13 @@ else ifeq ($(OA),1)
     CONTENT_ID  := IV0000-QUAK03002_00-IOQ3PS4PORT00000
     ICON_SRC    := icons/oa/icon0.png
     DEFINES_EXTRA := -DSTANDALONEOA
+else ifeq ($(CLASSIC),1)
+    FLAVOR      := classic
+    TITLE       := Quake 3 Classic
+    TITLE_ID    := QUAK03003
+    CONTENT_ID  := IV0000-QUAK03003_00-IOQ3PS4PORT00000
+    ICON_SRC    := icons/qc/icon0.png
+    DEFINES_EXTRA := -DCLASSIC -DLEGACY_PROTOCOL
 else
     FLAVOR      := q3
     TITLE       := ioQuake 3
@@ -58,7 +69,7 @@ $(shell mkdir -p sce_sys)
 # Default target MUST be first
 # ============================================================================
 
-.PHONY: all release debug clean icon ta oa all-flavors
+.PHONY: all release debug clean icon ta oa classic all-flavors
 
 all: release
 
@@ -66,6 +77,9 @@ ta: release
 	@true
 
 oa: release
+	@true
+
+classic: release
 	@true
 
 release: $(CONTENT_ID).pkg
@@ -84,11 +98,14 @@ all-flavors:
 	$(MAKE) ta
 	@echo "=== Building OpenArena ==="
 	$(MAKE) oa
+	@echo "=== Building Quake 3 Classic ==="
+	$(MAKE) classic
 	@echo "=== All builds complete ==="
 	@echo "Outputs:"
 	@ls -1 IV0000-QUAK03000_00-IOQ3PS4PORT00000.pkg 2>/dev/null || true
 	@ls -1 IV0000-QUAK03001_00-IOQ3PS4PORT00000.pkg 2>/dev/null || true
 	@ls -1 IV0000-QUAK03002_00-IOQ3PS4PORT00000.pkg 2>/dev/null || true
+	@ls -1 IV0000-QUAK03003_00-IOQ3PS4PORT00000.pkg 2>/dev/null || true
 
 
 # ============================================================================
@@ -502,15 +519,18 @@ $(CONTENT_ID).pkg: pkg.gp4
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core pkg_build $< .
 
 # All files/dirs in fixes/, then filtered per flavor below
-FIX_FILES_ALL := $(shell find fixes -type f 2>/dev/null)
-FIX_DIRS      := $(shell find fixes -type d 2>/dev/null)
+# Exclude source directories (pak9-ps4/ is a source tree; only the .pk3 goes in the pkg)
+FIX_FILES_ALL := $(filter-out fixes/baseq3/pak9-ps4/%,$(shell find fixes -type f 2>/dev/null))
+FIX_DIRS      := $(filter-out fixes/baseq3/pak9-ps4 fixes/baseq3/pak9-ps4/%,$(shell find fixes -type d 2>/dev/null))
 
 # Each flavor only bundles its own splash zip and relevant pk3 dirs.
-# Exclude splash zips for the other two flavors.
+# Exclude splash zips and pk3s for the other flavors.
 ifeq ($(FLAVOR),ta)
     FIX_FILES := $(filter-out fixes/splash.zip fixes/oa.zip, $(FIX_FILES_ALL))
 else ifeq ($(FLAVOR),oa)
     FIX_FILES := $(filter-out fixes/splash.zip fixes/ta.zip, $(FIX_FILES_ALL))
+else ifeq ($(FLAVOR),classic)
+    FIX_FILES := $(filter-out fixes/ta.zip fixes/oa.zip fixes/missionpack/pak4-ps4.pk3, $(FIX_FILES_ALL))
 else
     FIX_FILES := $(filter-out fixes/ta.zip fixes/oa.zip, $(FIX_FILES_ALL))
 endif

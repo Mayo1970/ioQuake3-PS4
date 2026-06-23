@@ -13,7 +13,7 @@
 #include "../sys/sys_local.h"
 #include "../qcommon/unzip.h"
 
-/* GLES version globals (declared extern in qgl.h). */
+/* GLES version globals. */
 int qglMajorVersion = 0;
 int qglMinorVersion = 0;
 int qglesMajorVersion = 2;
@@ -27,8 +27,7 @@ static int s_pigletModuleId  = -1;
 static int s_shaccModuleId   = -1;
 static qboolean s_pigletConfigured = qfalse;
 
-/* Splash screen, drawn once right after the GL context is up. Source image:
-   magick logo.bmp -resize "1920x1080^" -gravity center -extent 1920x1080 -flip -depth 8 RGBA:splash.rgba */
+/* Splash screen drawn once post-GL context. Extracted from platform-specific zip. */
 #ifdef STANDALONETA
 #define SPLASH_PATH    "/app0/fixes/ta.zip"
 #elif defined(STANDALONEOA)
@@ -116,7 +115,7 @@ static void Splash_CreateResources(void)
         return;
     }
 
-    /* Fullscreen quad: 2 triangles, pos + uv interleaved */
+    /* Fullscreen quad (2 triangles, pos+uv interleaved). */
     float verts[] = {
         /* pos        uv     */
         -1.0f, -1.0f, 0.0f, 0.0f,   /* bottom-left */

@@ -57,6 +57,22 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
   #define PROTOCOL_HANDLER		"quake3"
   #define CONFIG_PREFIX			"q3config"
 
+#elif CLASSIC
+  // "Quake 3 Classic" -- standard Q3 baseq3 with legacy protocol 43 support
+  // so that old clients (e.g. Dreamcast Q3) can connect.
+  #define PRODUCT_NAME              "ioq3+classic"
+  #define BASEGAME                  "baseq3"
+  #define CLIENT_WINDOW_TITLE       "Quake III Classic"
+  #define CLIENT_WINDOW_MIN_TITLE   "Q3Classic"
+  #define HOMEPATH_NAME_UNIX_LEGACY ".q3a"
+  #define HOMEPATH_NAME             "Quake3"
+  #define GAMENAME_FOR_MASTER       "Quake3Arena"
+  #define LEGACY_PROTOCOL
+  #define CINEMATICS_LOGO           "idlogo.RoQ"
+  #define CINEMATICS_INTRO          "intro.RoQ"
+  #define PROTOCOL_HANDLER          "quake3"
+  #define CONFIG_PREFIX             "q3config"
+
 #elif STANDALONE
   #define PRODUCT_NAME				"iofoo3"
   #define BASEGAME					"foobar"

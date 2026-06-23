@@ -24,14 +24,13 @@ extern void Con_Bottom(void);
 extern void PS4_AudioPause(void);
 extern void PS4_AudioResume(void);
 
-/* Always set, overriding any config binding, so every button has a default. */
+/* Always override config binding (ensure defaults). */
 static void PS4_SetDefaultBind(int keynum, const char *keyname, const char *binding)
 {
     Key_SetBinding(keynum, binding);
 }
 
-/* Apply all PS4 button bindings. Called after Com_Init so config is fully loaded.
-   Also unbinds conflicting keyboard bindings so PS4 buttons take precedence in the UI. */
+/* Apply PS4 bindings (post-Com_Init). Unbind conflicting keyboard keys. */
 void PS4_ApplyDefaultBindings(void)
 {
     PS4_SetDefaultBind(K_JOY1, "JOY1", "+moveup");      /* Cross    = jump        */
@@ -46,8 +45,7 @@ void PS4_ApplyDefaultBindings(void)
     PS4_SetDefaultBind(K_JOY11,"JOY11", "+scores");     /* Touchpad = scoreboard  */
     PS4_SetDefaultBind(K_ESCAPE,"ESCAPE", "togglemenu");/* Options  = toggle menu */
 
-    /* Left stick cosmetic bindings (analog axis drives movement,
-       these are display-only so the Controls menu shows LS_UP etc.) */
+    /* Left stick cosmetic bindings (display-only, axis drives movement). */
     PS4_SetDefaultBind(K_UPARROW,    "UPARROW",    "+forward");
     PS4_SetDefaultBind(K_DOWNARROW,  "DOWNARROW",  "+back");
     PS4_SetDefaultBind(K_LEFTARROW,  "LEFTARROW",  "+moveleft");
@@ -57,8 +55,7 @@ void PS4_ApplyDefaultBindings(void)
     PS4_SetDefaultBind(K_PGDN, "PGDN", "+lookup");     /* RS_UP   = look up   */
     PS4_SetDefaultBind(K_DEL,  "DEL",  "+lookdown");   /* RS_DOWN = look down */
 
-    /* Unbind legacy keyboard keys that conflict with PS4 buttons
-       so the Controls menu prefers button/stick displays. */
+    /* Unbind legacy keyboard to prefer button/stick in Controls menu. */
     Key_SetBinding('w', "");                            /* walk forward was on W */
     Key_SetBinding('s', "");                            /* backpedal was on S */
     Key_SetBinding('a', "");                            /* step left was on A */
@@ -124,7 +121,7 @@ static const int ds4_key_map[NUM_DS4_BUTTONS] = {
 static int          s_padHandle  = -1;
 static int          s_userId     = -1;
 
-/* Oversize: FW 9.00 scePadReadState writes past the declared struct end. */
+/* Oversize: scePadReadState writes past declared struct (FW 9.00). */
 static union {
     OrbisPadData data;
     uint8_t pad[256];
@@ -136,7 +133,7 @@ static int   ds4_axis_prev[4];           /* last sent LX LY RX RY */
 static float ds4_cursor_x = 0.0f;
 static float ds4_cursor_y = 0.0f;
 
-/* Aim mode: 0=stick (default), 1=touchpad. s_touchPrevX/Y=-1 means no contact. */
+/* Aim mode: 0=stick, 1=touchpad. Prev=-1 = no contact. */
 static int   s_aimMode    = 0;
 static float s_aimAccumX  = 0.0f;
 static float s_aimAccumY  = 0.0f;
@@ -515,6 +512,18 @@ static qboolean PS4_ShowFieldOSK(void)
     else if (strcmp(target, "capturelimit") == 0) { const wchar_t t[] = L"Enter Capture Limit"; memcpy(title, t, sizeof(t)); }
     else if (strcmp(target, "cdkey")        == 0) { const wchar_t t[] = L"CD Key";         memcpy(title, t, sizeof(t)); }
     else if (strcmp(target, "savename")  == 0) { const wchar_t t[] = L"Config Name";    memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "friend")         == 0) { const wchar_t t[] = L"Find Friend";        memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "password")       == 0) { const wchar_t t[] = L"Enter Password";     memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "findplayer")     == 0) { const wchar_t t[] = L"Find Player";        memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "favoriteName")   == 0) { const wchar_t t[] = L"Favourite Name";     memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "favoriteAddress")== 0) { const wchar_t t[] = L"Favourite Address";  memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "maxplayers")     == 0) { const wchar_t t[] = L"Maximum Players";    memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "minping")        == 0) { const wchar_t t[] = L"Minimum Ping";       memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "maxping")        == 0) { const wchar_t t[] = L"Maximum Ping";       memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "warmuptime")     == 0) { const wchar_t t[] = L"Warmup Time";        memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "maxrate")        == 0) { const wchar_t t[] = L"Max Rate";           memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "zombietime")     == 0) { const wchar_t t[] = L"Zombie Time";        memcpy(title, t, sizeof(t)); }
+    else if (strcmp(target, "reconlimit")     == 0) { const wchar_t t[] = L"Reconnect Limit";    memcpy(title, t, sizeof(t)); }
     else {
         /* Unknown field — convert ASCII name to wchar and use as title. */
         int i;
@@ -534,7 +543,26 @@ static qboolean PS4_ShowFieldOSK(void)
 
     char result[128];
     PS4_WcharToASCII(s_inputBuf, result, sizeof(result));
-    Cvar_Set("ui_ime_field", target);   /* which field received the result */
+
+    /* Write directly to the cvar the .menu field binds to, so numeric fields
+       update immediately without waiting for the QVM draw loop. */
+    if      (strcmp(target, "name")            == 0) { Cvar_Set("ui_Name", result); Cvar_Set("name", result); }
+    else if (strcmp(target, "password")        == 0) { Cvar_Set("password", result); }
+    else if (strcmp(target, "cdkey")           == 0) { Cvar_Set("cdkey", result); }
+    else if (strcmp(target, "findplayer")      == 0) { Cvar_Set("ui_findplayer", result); }
+    else if (strcmp(target, "favoriteName")    == 0) { Cvar_Set("ui_favoriteName", result); }
+    else if (strcmp(target, "favoriteAddress") == 0) { Cvar_Set("ui_favoriteAddress", result); }
+    else if (strcmp(target, "hostname")        == 0) { Cvar_Set("sv_hostname", result); }
+    else if (strcmp(target, "maxplayers")      == 0) { Cvar_Set("sv_maxclients", result); }
+    else if (strcmp(target, "minping")         == 0) { Cvar_Set("sv_minping", result); }
+    else if (strcmp(target, "maxping")         == 0) { Cvar_Set("sv_maxping", result); }
+    else if (strcmp(target, "warmuptime")      == 0) { Cvar_Set("g_warmup", result); }
+    else if (strcmp(target, "maxrate")         == 0) { Cvar_Set("sv_maxrate", result); }
+    else if (strcmp(target, "zombietime")      == 0) { Cvar_Set("sv_zombietime", result); }
+    else if (strcmp(target, "reconlimit")      == 0) { Cvar_Set("sv_reconnectlimit", result); }
+    else                                             { Cvar_Set(target, result); }
+
+    Cvar_Set("ui_ime_field", target);
     Cvar_Set("ui_ime_text", result);
     Cvar_SetValue("ui_ime_done", 1);
     return qtrue;

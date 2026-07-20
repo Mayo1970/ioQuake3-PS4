@@ -54,8 +54,22 @@ Toolchain lives at `…\DEVkits\OpenOrbis-PS4-Toolchain` (note: **DEVkits**, not
 | `make classic` | QUAK03003 | baseq3 | legacy proto 43 | `-DCLASSIC -DLEGACY_PROTOCOL` |
 
 Per-variant object dirs (`build/obj/{q3,ta,oa,classic}/{release,debug}`) plus a `build/.flavor_*` stamp
-mean you never need `make clean` when switching variants — and switching forces a relink of shared
-objects so standalone defines can't go stale.
+mean you never need `make clean` on the **build tree** when switching variants — and switching forces a
+relink of shared objects so standalone defines can't go stale.
+
+That isolation doesn't cover the **on-device** `q3config.cfg`, though — Q3, TA, and Classic all share
+`/data/ioq3/baseq3/q3config.cfg`, and whichever variant quits last stamps its `CVAR_ARCHIVE` cvars into
+that shared file for the next one to load. Worse, the `seta` command *adds* `CVAR_ARCHIVE` to any cvar it
+touches even if the running build declared that cvar with flag `0` — so a value only meant to be archived
+by one variant can become permanently sticky for another once it's in the shared cfg. Any new
+variant-specific cvar that differs in default between Q3/TA/Classic **must** use flag `0` (like
+`sv_master1`), never `CVAR_ARCHIVE`, or it will silently clobber the other baseq3-sharing variants on
+their next boot. (Real incident: CLASSIC's `sv_master2` was `CVAR_ARCHIVE` with default `""`; booting
+Classic once permanently wiped base Q3's `sv_master2` — `directory.ioquake3.org` — breaking its server
+browser while LAN discovery kept working, since that's broadcast-based and doesn't touch `sv_master*`.
+Fixed by dropping the flag to `0`, matching `sv_master1`.) If a variant misbehaves right after testing a
+different variant on the same console, suspect this before a code regression — delete the device's
+`q3config.cfg` to confirm.
 
 **Critical build facts (each one fixed a real failure — do not "improve" them):**
 - All variants **must use `--paid 0x3800000000000011`**. Any other PAID installs but refuses to boot.

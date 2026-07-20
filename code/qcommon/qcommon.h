@@ -96,6 +96,16 @@ void MSG_ReadDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *t
 #ifdef CLASSIC
 void MSG_WriteDeltaUsercmd( msg_t *msg, usercmd_t *from, usercmd_t *to );
 void MSG_ReadDeltaUsercmd( msg_t *msg, usercmd_t *from, usercmd_t *to );
+
+// retail (protocol 43) <-> modern entity_event_t translation, see msg.c
+int		Classic_EventToModern( int event );
+int		Classic_EventToRetail( int event );
+int		Classic_EventFieldToModern( int field );
+int		Classic_EventFieldToRetail( int field );
+void	Classic_TranslateEntityToModern( struct entityState_s *es );
+void	Classic_TranslateEntityToRetail( struct entityState_s *es );
+void	Classic_TranslatePlayerstateToModern( struct playerState_s *ps );
+void	Classic_TranslatePlayerstateToRetail( struct playerState_s *ps );
 #endif
 
 void MSG_WriteDeltaEntity( msg_t *msg, struct entityState_s *from, struct entityState_s *to

@@ -2365,6 +2365,47 @@ void CL_InitDownloads(void) {
 	CL_DownloadsComplete();
 }
 
+#ifdef CLASSIC
+/*
+=================
+CL_CompatUserinfo
+
+Builds a userinfo string containing only the keys a retail (protocol 43)
+Dreamcast 1.13n server understands. Sending the full modern userinfo
+(cl_guid, team_model/team_headmodel, teamtask, cl_anonymous, cg_predictItems,
+cl_voipProtocol, ...) is roughly twice the length retail ever saw and is
+unverified against the DC server's userinfo buffer/parser -- see
+CLASSIC_CROSSPLAY.MD SL. The advertised rate is also capped at a period-typical
+BBA value; the real "rate" cvar is untouched so modern servers are unaffected.
+=================
+*/
+static const char *compatUserinfoKeys[] = {
+	"name", "snaps", "model", "headmodel", "color", "handicap",
+	"sex", "cl_anonymous", "cg_predictItems", "password"
+};
+
+static void CL_CompatUserinfo( char *info ) {
+	int i;
+	int rate;
+
+	info[0] = '\0';
+
+	for ( i = 0; i < ARRAY_LEN( compatUserinfoKeys ); i++ ) {
+		const char *key = compatUserinfoKeys[i];
+		const char *value = Cvar_VariableString( key );
+		if ( value[0] ) {
+			Info_SetValueForKey( info, key, value );
+		}
+	}
+
+	rate = Cvar_VariableIntegerValue( "rate" );
+	if ( rate > 5000 || rate <= 0 ) {
+		rate = 5000;
+	}
+	Info_SetValueForKey( info, "rate", va( "%i", rate ) );
+}
+#endif
+
 /*
 =================
 CL_CheckForResend
@@ -2415,12 +2456,19 @@ void CL_CheckForResend( void ) {
 		// sending back the challenge
 		port = Cvar_VariableValue ("net_qport");
 
-		Q_strncpyz( info, Cvar_InfoString( CVAR_USERINFO ), sizeof( info ) );
-		
 #ifdef LEGACY_PROTOCOL
 		if(com_legacyprotocol->integer == com_protocol->integer)
 			clc.compat = qtrue;
+#endif
 
+#ifdef CLASSIC
+		if(clc.compat)
+			CL_CompatUserinfo( info );
+		else
+#endif
+			Q_strncpyz( info, Cvar_InfoString( CVAR_USERINFO ), sizeof( info ) );
+
+#ifdef LEGACY_PROTOCOL
 		if(clc.compat)
 			Info_SetValueForKey(info, "protocol", va("%i", com_legacyprotocol->integer));
 		else
@@ -2966,6 +3014,13 @@ void CL_CheckUserinfo( void ) {
 	if(cvar_modifiedFlags & CVAR_USERINFO)
 	{
 		cvar_modifiedFlags &= ~CVAR_USERINFO;
+#ifdef CLASSIC
+		if(clc.compat) {
+			char info[MAX_INFO_STRING];
+			CL_CompatUserinfo( info );
+			CL_AddReliableCommand(va("userinfo \"%s\"", info ), qfalse);
+		} else
+#endif
 		CL_AddReliableCommand(va("userinfo \"%s\"", Cvar_InfoString( CVAR_USERINFO ) ), qfalse);
 	}
 }
@@ -3689,6 +3744,11 @@ void CL_Init( void ) {
 	Cvar_Get ("g_blueTeam", "Pagans", CVAR_SERVERINFO | CVAR_ARCHIVE);
 	Cvar_Get ("color1",  "4", CVAR_USERINFO | CVAR_ARCHIVE );
 	Cvar_Get ("color2", "5", CVAR_USERINFO | CVAR_ARCHIVE );
+#ifdef CLASSIC
+	// retail (protocol 43) has a single "color" key, not color1/color2;
+	// only used when building the compat userinfo, see CL_CompatUserinfo
+	Cvar_Get ("color", "4", CVAR_USERINFO | CVAR_ARCHIVE );
+#endif
 	Cvar_Get ("handicap", "100", CVAR_USERINFO | CVAR_ARCHIVE );
 	Cvar_Get ("teamtask", "0", CVAR_USERINFO );
 	Cvar_Get ("sex", "male", CVAR_USERINFO | CVAR_ARCHIVE );

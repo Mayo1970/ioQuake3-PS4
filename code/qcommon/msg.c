@@ -1059,6 +1059,110 @@ netField_t classicPlayerStateFields[] =
 #undef PSF
 #endif // CLASSIC
 
+#ifdef CLASSIC
+// Retail (1.13n/1.16n, protocol 43) entity_event_t numbers differ from modern
+// ioq3's: retail lacks the TA-era inserts EV_GLOBAL_TEAM_SOUND (modern 47) and
+// EV_MISSILE_MISS_METAL (modern 52), and retail entityType_t lacks ET_TEAM, so
+// retail ET_EVENTS = 12 (modern 13). Events 0-46 are identical; everything at
+// or above 47 shifts. See CLASSIC_CROSSPLAY.MD SJ for the empirical pinning.
+// qcommon has no dependency on the game module's bg_public.h, so the
+// entityType_t/entity_event_t values needed here are mirrored as raw
+// constants -- keep these in sync with code/game/bg_public.h.
+#define CLASSIC_ET_EVENTS  12  // game/bg_public.h entityType_t: retail ET_EVENTS
+#define MODERN_ET_EVENTS   13  // game/bg_public.h entityType_t: modern ET_EVENTS
+#define CLASSIC_EV_EVENT_BITS 0x300  // game/bg_public.h EV_EVENT_BIT1|EV_EVENT_BIT2
+#define CLASSIC_EV_NONE    0   // game/bg_public.h entity_event_t: EV_NONE
+
+static const struct {
+	int retail;
+	int modern;
+} classicEventMap[] = {
+	{ 47, 48 },  // EV_BULLET_HIT_FLESH
+	{ 48, 49 },  // EV_BULLET_HIT_WALL   (HW anchor)
+	{ 49, 50 },  // EV_MISSILE_HIT
+	{ 50, 51 },  // EV_MISSILE_MISS
+	{ 51, 53 },  // EV_RAILTRAIL         (inferred, unpinned)
+	{ 52, 54 },  // EV_SHOTGUN           (PINNED: seed parms, fire-correlated)
+	{ 53, 55 },  // EV_BULLET            (MG tracer; inferred)
+	{ 54, 56 },  // EV_PAIN              (PINNED: health parms)
+	{ 55, 57 },  // EV_DEATH1
+	{ 56, 58 },  // EV_DEATH2
+	{ 57, 59 },  // EV_DEATH3
+	{ 58, 60 },  // EV_OBITUARY          (parm = meansOfDeath; MOD enum aligned)
+	{ 59, 61 },  // EV_POWERUP_QUAD
+	{ 60, 62 },  // EV_POWERUP_BATTLESUIT
+	{ 61, 63 },  // EV_POWERUP_REGEN
+	{ 62, 64 },  // EV_GIB_PLAYER
+	{ 63, 74 },  // EV_DEBUG_LINE        (tail inferred)
+	{ 64, 75 },  // EV_STOPLOOPINGSOUND  (tail inferred)
+	{ 65, 76 },  // EV_TAUNT             (tail inferred)
+};
+
+int Classic_EventToModern( int event ) {
+	int i;
+	if ( event < 47 ) {
+		return event;
+	}
+	for ( i = 0; i < ARRAY_LEN( classicEventMap ); i++ ) {
+		if ( classicEventMap[i].retail == event ) {
+			return classicEventMap[i].modern;
+		}
+	}
+	return event; // unknown/unpinned retail event -- pass through
+}
+
+int Classic_EventToRetail( int event ) {
+	int i;
+	if ( event < 47 ) {
+		return event;
+	}
+	for ( i = 0; i < ARRAY_LEN( classicEventMap ); i++ ) {
+		if ( classicEventMap[i].modern == event ) {
+			return classicEventMap[i].retail;
+		}
+	}
+	return CLASSIC_EV_NONE; // modern-only event has no retail number
+}
+
+int Classic_EventFieldToModern( int field ) {
+	return Classic_EventToModern( field & ~CLASSIC_EV_EVENT_BITS ) | ( field & CLASSIC_EV_EVENT_BITS );
+}
+
+int Classic_EventFieldToRetail( int field ) {
+	return Classic_EventToRetail( field & ~CLASSIC_EV_EVENT_BITS ) | ( field & CLASSIC_EV_EVENT_BITS );
+}
+
+void Classic_TranslateEntityToModern( entityState_t *es ) {
+	if ( es->eType >= CLASSIC_ET_EVENTS ) {
+		es->eType = MODERN_ET_EVENTS + Classic_EventToModern( es->eType - CLASSIC_ET_EVENTS );
+	}
+	es->event = Classic_EventFieldToModern( es->event );
+}
+
+void Classic_TranslateEntityToRetail( entityState_t *es ) {
+	if ( es->eType >= MODERN_ET_EVENTS ) {
+		es->eType = CLASSIC_ET_EVENTS + Classic_EventToRetail( es->eType - MODERN_ET_EVENTS );
+	}
+	es->event = Classic_EventFieldToRetail( es->event );
+}
+
+void Classic_TranslatePlayerstateToModern( playerState_t *ps ) {
+	int i;
+	for ( i = 0; i < MAX_PS_EVENTS; i++ ) {
+		ps->events[i] = Classic_EventToModern( ps->events[i] );
+	}
+	ps->externalEvent = Classic_EventToModern( ps->externalEvent );
+}
+
+void Classic_TranslatePlayerstateToRetail( playerState_t *ps ) {
+	int i;
+	for ( i = 0; i < MAX_PS_EVENTS; i++ ) {
+		ps->events[i] = Classic_EventToRetail( ps->events[i] );
+	}
+	ps->externalEvent = Classic_EventToRetail( ps->externalEvent );
+}
+#endif // CLASSIC
+
 netField_t	entityStateFields[] =
 {
 { NETF(pos.trTime), 32 },

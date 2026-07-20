@@ -783,6 +783,13 @@ static void SV_SendClientGameState( client_t *client ) {
 			continue;
 		}
 		MSG_WriteByte( &msg, svc_baseline );
+#ifdef CLASSIC
+		if ( msg.compat ) {
+			entityState_t compatBase = *base;
+			Classic_TranslateEntityToRetail( &compatBase );
+			MSG_WriteDeltaEntity( &msg, &nullstate, &compatBase, qtrue );
+		} else
+#endif
 		MSG_WriteDeltaEntity( &msg, &nullstate, base, qtrue );
 	}
 

@@ -650,6 +650,12 @@ void SV_Init (void)
 	// systeminfo
 	Cvar_Get ("sv_cheats", "1", CVAR_SYSTEMINFO | CVAR_ROM );
 	sv_serverid = Cvar_Get ("sv_serverid", "0", CVAR_SYSTEMINFO | CVAR_ROM );
+#ifdef CLASSIC
+	/* A retail/Dreamcast client can never pass pure validation against our
+	 * custom zpack-*.pk3 QVMs. ROM-lock it off so the start-server UI or a
+	 * stale config can't flip sv_pure back on and lock DC clients out. */
+	sv_pure = Cvar_Get ("sv_pure", "0", CVAR_SYSTEMINFO | CVAR_ROM );
+#else
 	sv_pure = Cvar_Get ("sv_pure", "1", CVAR_SYSTEMINFO );
 #ifdef __ORBIS__
 	/* On PS4, cgame load takes several seconds. With sv_pure 1, the server
@@ -657,6 +663,7 @@ void SV_Init (void)
 	 * (sv_client.c:1734), causing an infinite "Awaiting Snapshot" loop.
 	 * Force it off here so the server itself never enables pure validation. */
 	Cvar_Set( "sv_pure", "0" );
+#endif
 #endif
 #ifdef USE_VOIP
 	sv_voip = Cvar_Get("sv_voip", "1", CVAR_LATCH);

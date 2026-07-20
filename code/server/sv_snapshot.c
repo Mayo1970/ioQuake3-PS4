@@ -88,6 +88,14 @@ static void SV_EmitPacketEntities( clientSnapshot_t *from, clientSnapshot_t *to,
 			// delta update from old position
 			// because the force parm is qfalse, this will not result
 			// in any bytes being emitted if the entity has not changed at all
+#ifdef CLASSIC
+			if ( msg->compat ) {
+				entityState_t compatOld = *oldent, compatNew = *newent;
+				Classic_TranslateEntityToRetail( &compatOld );
+				Classic_TranslateEntityToRetail( &compatNew );
+				MSG_WriteDeltaEntity (msg, &compatOld, &compatNew, qfalse );
+			} else
+#endif
 			MSG_WriteDeltaEntity (msg, oldent, newent, qfalse );
 			oldindex++;
 			newindex++;
@@ -96,6 +104,14 @@ static void SV_EmitPacketEntities( clientSnapshot_t *from, clientSnapshot_t *to,
 
 		if ( newnum < oldnum ) {
 			// this is a new entity, send it from the baseline
+#ifdef CLASSIC
+			if ( msg->compat ) {
+				entityState_t compatOld = sv.svEntities[newnum].baseline, compatNew = *newent;
+				Classic_TranslateEntityToRetail( &compatOld );
+				Classic_TranslateEntityToRetail( &compatNew );
+				MSG_WriteDeltaEntity (msg, &compatOld, &compatNew, qtrue );
+			} else
+#endif
 			MSG_WriteDeltaEntity (msg, &sv.svEntities[newnum].baseline, newent, qtrue );
 			newindex++;
 			continue;
@@ -194,6 +210,19 @@ static void SV_WriteSnapshotToClient( client_t *client, msg_t *msg ) {
 	MSG_WriteData (msg, frame->areabits, frame->areabytes);
 
 	// delta encode the playerstate
+#ifdef CLASSIC
+	if ( msg->compat ) {
+		playerState_t compatNew = frame->ps;
+		Classic_TranslatePlayerstateToRetail( &compatNew );
+		if ( oldframe ) {
+			playerState_t compatOld = oldframe->ps;
+			Classic_TranslatePlayerstateToRetail( &compatOld );
+			MSG_WriteDeltaPlayerstate( msg, &compatOld, &compatNew );
+		} else {
+			MSG_WriteDeltaPlayerstate( msg, NULL, &compatNew );
+		}
+	} else
+#endif
 	if ( oldframe ) {
 		MSG_WriteDeltaPlayerstate( msg, &oldframe->ps, &frame->ps );
 	} else {

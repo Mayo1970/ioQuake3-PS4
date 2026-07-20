@@ -162,6 +162,18 @@ qboolean	CL_GetSnapshot(int snapshotNumber, snapshot_t* snapshot) {
 			cl.parseEntities[(clSnap->parseEntitiesNum + i) & (MAX_PARSE_ENTITIES - 1)];
 	}
 
+#ifdef CLASSIC
+	// Retail (protocol 43) event numbers differ from modern ioq3's -- translate
+	// on the cgame-facing copy only. cl.parseEntities/clSnap->ps stay retail so
+	// the wire delta chain stays consistent (see CLASSIC_CROSSPLAY.MD SJ).
+	if (clc.compat) {
+		Classic_TranslatePlayerstateToModern(&snapshot->ps);
+		for (i = 0; i < count; i++) {
+			Classic_TranslateEntityToModern(&snapshot->entities[i]);
+		}
+	}
+#endif
+
 	// FIXME: configstring changes and server commands!!!
 
 	return qtrue;

@@ -233,6 +233,8 @@ static int PS4_InstallFixes(void)
 #else
 	copied += PS4_SyncDir("/app0/fixes/baseq3",      "/data/ioq3/baseq3");
 #endif
+	/* Shader binaries are read straight from /app0/fixes/shaderbin/ at load
+	 * time (ps4_shaderbin.c) -- no sync needed, /app0/ is already readable. */
 	return copied;
 }
 

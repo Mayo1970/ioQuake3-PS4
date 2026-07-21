@@ -82,7 +82,7 @@ different variant on the same console, suspect this before a code regression —
   `SERVICE_ID_ADDCONT_ADD_*` entries) so **Cross = confirm** in the PS4 OSK/system UI (non-JP layout).
   Without `ATTRIBUTE2`, Circle confirms. `REMOTE_PLAY_KEY_ASSIGN` is unrelated to this.
 - Release strips debug info (`llvm-strip --strip-debug` before `create-fself`) and uses `-O2`; debug uses
-  `-O0 -g` and defines `PS4_DEBUG`. Each variant bundles only its own splash zip (~3–4 MB PKGs).
+  `-O0 -g` and defines `PS4_DEBUG`.
 - `PkgTool.Core.runtimeconfig.json` has `"rollForward": "LatestMajor"` so the .NET Core 3.0 tool runs on
   installed .NET 6+.
 
@@ -106,7 +106,7 @@ ioQuake3-PS4/
 │   ├── baseq3/                 pak9-ps4.pk3 (Q3/TA OSK+UI), zpack-classic.pk3 (Classic QVMs/assets)
 │   ├── missionpack/            pak4-ps4.pk3 (TA OSK fields)
 │   ├── baseoa/                 (OA overrides — may be empty in-repo; OA pk3s are gitignored)
-│   └── splash.zip ta.zip oa.zip   per-variant 1920×1080 boot splash images
+│   └── shaderbin/               precompiled Piglet shader binaries (see §Renderer), shared by all flavors
 ├── icons/  q3/ ta/ oa/ qc/ ra/ per-variant icon0.png (qc=Classic; ra is staged but NOT wired into Makefile)
 ├── sce_module/                 user-supplied Sony .sprx (Piglet + ShaccVSH), gitignored
 ├── sce_sys/                    generated PKG metadata (param.sfo, icon0.png)
@@ -125,7 +125,7 @@ ioQuake3-PS4/
 |---|---|
 | `sys_main_ps4.c` | Entry point: module load → net init → fix installer → command line → `Com_Init` → main loop |
 | `sys_ps4.c` | System layer: `Sys_Milliseconds` (gettimeofday), paths (/app0, /data/ioq3), file/dir ops |
-| `ps4_glimp.c` | Graphics: Piglet+ShaccVSH load (once), EGL @1920×1080, swap, boot splash, vid_restart-safe lifecycle |
+| `ps4_glimp.c` | Graphics: Piglet load (once, ShaccVSH optional), EGL @1920×1080, swap, vid_restart-safe lifecycle |
 | `ps4_input.c` | DualShock 4: buttons, sticks, touchpad aim, rumble, lightbar health, IME OSK, default bindings |
 | `ps4_snd.c` | DMA audio thread via sceAudioOut; OSK pause/resume |
 | `net_ps4.c` | sceNetInit + pool (256 KB) + ctl; caches IP/mask/broadcast |
@@ -133,6 +133,7 @@ ioQuake3-PS4/
 | `user_mem.c/.h` | Custom malloc/mspace backing the engine hunk+zone (critical for boot) |
 | `ps4_compat.c` | libc/compat shims |
 | `ps4_gamma.c` | No-op (Piglet has no HW gamma) |
+| `ps4_shaderbin.c/.h` | Precompiled shader binary load (all builds) + capture (`PS4_DEBUG` only, see §Renderer) |
 
 ---
 
@@ -214,8 +215,21 @@ Working configuration (after several wrong turns — do not revert):
 - **Skeletal animation disabled:** `glslMaxAnimatedBones=0`, `gpuVertexAnimation=qfalse` at the top of
   `GLSL_InitGPUShaders` — skips ~36 shader variants. Bone count auto-clamps from
   `GL_MAX_VERTEX_UNIFORM_VECTORS`; below 12 bones it disables entirely.
-- **Shader binary cache:** `glGetProgramBinaryOES` is NULL on FW 9.00's Piglet → cache silently disabled,
-  so the ~16 s shader compile runs every boot. The boot splash covers the wait.
+- **Shader binaries, not runtime compile:** per-stage `glPigletGetShaderBinarySCE` (an undocumented Piglet
+  export, resolved via `eglGetProcAddress`) dumps Piglet's own Shader Binary container (magic `71 bc 91 e8`,
+  embedded GLSL source + compiled microcode) for an already-compiled shader. All 124 vertex/fragment stage
+  blobs (62 programs, `~1.5 MB` total) are captured once and shipped in `fixes/shaderbin/`, read **directly
+  from the PKG's own read-only `/app0/fixes/shaderbin/` mount** — no `/data/ioq3/` copy, no
+  `PS4_InstallFixes` sync involved, `fopen("rb")` is all a read-only mount needs. `GLSL_CompileGPUShader`
+  (`tr_glsl.c`) loads them via `qglShaderBinary(1, &shader, format, blob, size)` — `format` is whatever the
+  driver reported at capture time (`0x9270` on this console), not a guessed constant. **ShaccVSH is no
+  longer required at all** — `PS4_ShaccAvailable()` (`ps4_glimp.c`) gates a source-compile fallback used
+  only when a blob is missing (e.g. capturing newly added shader content); hardware-verified booting with
+  both `libScePigletv2VSH.sprx` and `libSceShaccVSH.sprx` FTP copies absent (Piglet loads from firmware). A
+  hash with no shipped blob and no ShaccVSH available is a fatal, dialog-shown error (`ERR_FATAL` naming the
+  missing hash/stage), not a silent crash. The old whole-program `glGetProgramBinaryOES` cache was removed
+  entirely (confirmed dead — that extension resolves NULL on this FW). Capture tooling (`ps4_shaderbin.c`,
+  `PS4_DEBUG`-gated) stays in the tree permanently for future content.
 
 ---
 
@@ -225,7 +239,8 @@ Working configuration (after several wrong turns — do not revert):
 main()
  ├─ PS4_LoadSystemModules()   SysCore→Mbus→Ipmi→SystemService→UserService
  │                            →AudioOut→Pad→Net→NetCtl→VideoOut
- │                            (Piglet+ShaccVSH: /data/self/system/common/lib/ → /app0/sce_module/ fallback)
+ │                            (Piglet: /data/self/system/common/lib/ → firmware → /app0/sce_module/;
+ │                             ShaccVSH: same paths, optional — see §Renderer)
  ├─ PS4_NetInit()             BEFORE Com_Init (pool must pre-exist)
  ├─ PS4_InstallFixes()        /app0/fixes/* → /data/ioq3/  (see §fixes installer)
  ├─ build command line        PS4_ADDARG macro — no leading space, or the intro cinematic is blocked
@@ -265,11 +280,13 @@ main()
   (`PS4_FileNeedsUpdate`). There is **no `fixes_installed` marker file** — bump a file's size to force it
   to recopy, or delete the target via FTP.
 - Each variant copies only its folders: **Q3 / Classic** → `baseq3/`; **TA** → `baseq3/` + `missionpack/`;
-  **OA** → `baseoa/` (gated by `STANDALONEOA`/`STANDALONETA` ifdefs).
-- The Makefile bundles only the relevant fixes per flavor: it drops the other variants' splash zips, and
-  Classic also drops `missionpack/pak4-ps4.pk3`. `fixes/baseq3/pak9-ps4/` is a **source tree** — only the
-  built `.pk3` ships, not the loose source. The fix-file list is auto-discovered (`find fixes -type f`):
-  drop a file in the folder and it's bundled.
+  **OA** → `baseoa/` (gated by `STANDALONEOA`/`STANDALONETA` ifdefs). `shaderbin/` is the one exception —
+  it's never synced to `/data/` at all; `ps4_shaderbin.c` reads it straight from `/app0/fixes/shaderbin/`
+  (see §Renderer) since shader binaries only ever need read access.
+- The Makefile bundles everything under `fixes/` into every PKG except Classic, which drops
+  `missionpack/pak4-ps4.pk3` (TA-only). `fixes/baseq3/pak9-ps4/` is a **source tree** — only the built
+  `.pk3` ships, not the loose source. The fix-file list is auto-discovered (`find fixes -type f`): drop a
+  file in the folder and it's bundled.
 - **The UI/OSK behaviour that runs on hardware is the compiled QVM inside `fixes/*/pak9-ps4s.pk3` (and
   `pak4-ps4.pk3` for TA), not the C in `code/q3_ui/`.** Editing C alone changes nothing on the console
   until the QVM is rebuilt and re-shipped. When OSK/menu behaviour regresses, check and rebuild the pk3
@@ -361,8 +378,6 @@ Wii/PS3 ports.
 - **sRGB textures** — enums defined for compile only; non-functional on GLES2. sRGB DDS would upload wrong.
   Harmless for current gameplay.
 - **Shadow mapping** — depth-only FBOs unsupported on Piglet → silently no shadows, no crash.
-- **Shader binary cache** — `glGetProgramBinaryOES` is NULL on FW 9.00 (§Renderer); no workaround without
-  devkit access.
 
 ---
 

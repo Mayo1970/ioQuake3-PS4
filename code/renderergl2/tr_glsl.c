@@ -25,146 +25,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_dsa.h"
 
 #if defined(__ORBIS__) || defined(__PS4__)
-#include <stdio.h>
-#include <sys/stat.h>
-
-#ifndef GL_PROGRAM_BINARY_LENGTH_OES
-#define GL_PROGRAM_BINARY_LENGTH_OES 0x8741
+#include "../ps4/ps4_shaderbin.h"
 #endif
-
-// GL_OES_get_program_binary function pointers resolved at runtime.
-// NULL if Piglet does not expose the extension.
-typedef void (*PFNGLGETPROGRAMBINARYOESPROC)(GLuint, GLsizei, GLsizei *, GLenum *, void *);
-typedef void (*PFNGLPROGRAMBINARYOESPROC)(GLuint, GLenum, const void *, GLint);
-static PFNGLGETPROGRAMBINARYOESPROC s_glGetProgramBinary = NULL;
-static PFNGLPROGRAMBINARYOESPROC    s_glProgramBinary    = NULL;
-static qboolean                     s_programBinaryInit  = qfalse;
-
-#define SHADERCACHE_DIR  "/data/ioq3/shadercache"
-
-static void PS4_InitProgramBinary(void)
-{
-	if (s_programBinaryInit)
-		return;
-	s_programBinaryInit = qtrue;
-
-	const char *exts = (const char *)glGetString(GL_EXTENSIONS);
-	if (exts && (strstr(exts, "GL_OES_get_program_binary") ||
-	             strstr(exts, "GL_SCE_piglet_shader_binary"))) {
-		s_glGetProgramBinary = (PFNGLGETPROGRAMBINARYOESPROC)eglGetProcAddress("glGetProgramBinaryOES");
-		s_glProgramBinary    = (PFNGLPROGRAMBINARYOESPROC)eglGetProcAddress("glProgramBinaryOES");
-	}
-
-	if (s_glGetProgramBinary && s_glProgramBinary) {
-		ri.Printf(PRINT_ALL, "PS4: shader binary cache enabled\n");
-		mkdir(SHADERCACHE_DIR, 0755);
-	} else {
-		s_glGetProgramBinary = NULL;
-		s_glProgramBinary    = NULL;
-	}
-}
-
-// djb2 hash over a buffer
-static unsigned int PS4_HashBuf(const char *buf, int len)
-{
-	unsigned int h = 5381;
-	for (int i = 0; i < len; i++)
-		h = ((h << 5) + h) + (unsigned char)buf[i];
-	return h;
-}
-
-// Returns qtrue if the program was loaded from cache (skip compile+link).
-static qboolean PS4_LoadProgramBinary(GLuint program, const char *vpCode, const char *fpCode)
-{
-	if (!s_glProgramBinary)
-		return qfalse;
-
-	unsigned int h = PS4_HashBuf(vpCode, strlen(vpCode));
-	h = h * 31 + PS4_HashBuf(fpCode ? fpCode : "", fpCode ? strlen(fpCode) : 0);
-
-	char path[256];
-	Com_sprintf(path, sizeof(path), "%s/%08x.bin", SHADERCACHE_DIR, h);
-
-	FILE *f = fopen(path, "rb");
-	if (!f)
-		return qfalse;
-
-	fseek(f, 0, SEEK_END);
-	long size = ftell(f);
-	fseek(f, 0, SEEK_SET);
-	if (size <= (long)sizeof(GLenum)) {
-		fclose(f);
-		return qfalse;
-	}
-
-	GLenum fmt;
-	if (fread(&fmt, sizeof(fmt), 1, f) != 1) {
-		fclose(f);
-		return qfalse;
-	}
-	long blobSize = size - sizeof(GLenum);
-	void *blob = malloc(blobSize);
-	if (!blob) {
-		fclose(f);
-		return qfalse;
-	}
-	if ((long)fread(blob, 1, blobSize, f) != blobSize) {
-		fclose(f);
-		free(blob);
-		return qfalse;
-	}
-	fclose(f);
-
-	s_glProgramBinary(program, fmt, blob, (GLint)blobSize);
-	free(blob);
-
-	GLint linked = 0;
-	glGetProgramiv(program, GL_LINK_STATUS, &linked);
-	if (!linked)
-		return qfalse;
-
-	return qtrue;
-}
-
-static void PS4_SaveProgramBinary(GLuint program, const char *vpCode, const char *fpCode)
-{
-	if (!s_glGetProgramBinary)
-		return;
-
-	GLint blobSize = 0;
-	glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH_OES, &blobSize);
-	if (blobSize <= 0)
-		return;
-
-	void *blob = malloc(blobSize);
-	if (!blob)
-		return;
-
-	GLsizei written = 0;
-	GLenum fmt = 0;
-	s_glGetProgramBinary(program, blobSize, &written, &fmt, blob);
-	if (written <= 0) {
-		free(blob);
-		return;
-	}
-
-	unsigned int h = PS4_HashBuf(vpCode, strlen(vpCode));
-	h = h * 31 + PS4_HashBuf(fpCode ? fpCode : "", fpCode ? strlen(fpCode) : 0);
-
-	char path[256];
-	Com_sprintf(path, sizeof(path), "%s/%08x.bin", SHADERCACHE_DIR, h);
-
-	FILE *f = fopen(path, "wb");
-	if (!f) {
-		free(blob);
-		return;
-	}
-	fwrite(&fmt, sizeof(fmt), 1, f);
-	fwrite(blob, 1, written, f);
-	fclose(f);
-	free(blob);
-}
-#endif // __ORBIS__
 
 extern const char *fallbackShader_bokeh_vp;
 extern const char *fallbackShader_bokeh_fp;
@@ -567,15 +429,40 @@ static int GLSL_CompileGPUShader(GLuint program, GLuint *prevShader, const GLcha
 {
 	GLint           compiled;
 	GLuint          shader;
+#if defined(__ORBIS__) || defined(__PS4__)
+	qboolean        loadedFromBinary;
+	unsigned int    shaderHash = 0;
+#endif
 
 	shader = qglCreateShader(shaderType);
 
+#if defined(__ORBIS__) || defined(__PS4__)
+	// Primary path: a shipped shader binary, captured offline, avoids
+	// ShaccVSH entirely. Falls back to a real source compile only if no
+	// blob was shipped for this hash AND the compiler module is present.
+	loadedFromBinary = PS4_LoadShaderBinary(shader, buffer, size, shaderType, &shaderHash);
+	if (!loadedFromBinary && !PS4_ShaccAvailable())
+	{
+		// Nothing shipped for this shader and there's no source-compile
+		// fallback available -- this is missing content, not a GLSL bug,
+		// so it gets a clear dialog naming exactly what's missing instead
+		// of the generic "Couldn't compile shader" below.
+		ri.Error(ERR_FATAL, "PS4: no shader binary for hash %08x (%s) and ShaccVSH not available",
+		         shaderHash, shaderType == GL_VERTEX_SHADER ? "vp" : "fp");
+		return 0;
+	}
+	if (!loadedFromBinary)
+	{
+		qglShaderSource(shader, 1, (const GLchar **)&buffer, &size);
+		qglCompileShader(shader);
+	}
+#else
 	qglShaderSource(shader, 1, (const GLchar **)&buffer, &size);
-
-	// compile shader
 	qglCompileShader(shader);
+#endif
 
-	// check if shader compiled
+	// check if shader compiled (Piglet reports binary-loaded shaders as
+	// compiled through this same query)
 	qglGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
 	if(!compiled)
 	{
@@ -584,6 +471,15 @@ static int GLSL_CompileGPUShader(GLuint program, GLuint *prevShader, const GLcha
 		ri.Error(ERR_DROP, "Couldn't compile shader");
 		return 0;
 	}
+
+#if defined(__ORBIS__) || defined(__PS4__)
+	if (loadedFromBinary)
+		ri.Printf(PRINT_DEVELOPER, "PS4: shader binary hit (%s)\n", shaderType == GL_VERTEX_SHADER ? "vp" : "fp");
+#ifdef PS4_DEBUG
+	else
+		PS4_ShaderBin_Dump(shader, buffer, size, shaderType);
+#endif
+#endif
 
 	if (*prevShader)
 	{
@@ -708,15 +604,6 @@ static int GLSL_InitGPUShader2(shaderProgram_t * program, const char *name, int 
 	program->program = qglCreateProgram();
 	program->attribs = attribs;
 
-#if defined(__ORBIS__) || defined(__PS4__)
-	PS4_InitProgramBinary();
-	if (PS4_LoadProgramBinary(program->program, vpCode, fpCode ? fpCode : "")) {
-		ri.Printf(PRINT_DEVELOPER, "PS4: shader cache hit: %s\n", name);
-		// attrib bindings are baked into the binary; skip bind + link
-		return 1;
-	}
-#endif
-
 	if (!(GLSL_CompileGPUShader(program->program, &program->vertexShader, vpCode, strlen(vpCode), GL_VERTEX_SHADER)))
 	{
 		ri.Printf(PRINT_ALL, "GLSL_InitGPUShader2: Unable to load \"%s\" as GL_VERTEX_SHADER\n", name);
@@ -780,10 +667,6 @@ static int GLSL_InitGPUShader2(shaderProgram_t * program, const char *name, int 
 		qglBindAttribLocation(program->program, ATTR_INDEX_TANGENT2, "attr_Tangent2");
 
 	GLSL_LinkProgram(program->program);
-
-#if defined(__ORBIS__) || defined(__PS4__)
-	PS4_SaveProgramBinary(program->program, vpCode, fpCode ? fpCode : "");
-#endif
 
 	return 1;
 }

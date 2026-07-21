@@ -257,7 +257,8 @@ PS4_SRCS :=     code/ps4/sys_main_ps4.c \
                 code/ps4/net_ps4.c \
                 code/ps4/con_ps4.c \
                 code/ps4/ps4_compat.c \
-                code/ps4/user_mem.c
+                code/ps4/user_mem.c \
+                code/ps4/ps4_shaderbin.c
 
 RENDERER_SRCS :=     code/renderergl2/tr_animation.c \
                      code/renderergl2/tr_backend.c \
@@ -523,16 +524,13 @@ $(CONTENT_ID).pkg: pkg.gp4
 FIX_FILES_ALL := $(filter-out fixes/baseq3/pak9-ps4/%,$(shell find fixes -type f 2>/dev/null))
 FIX_DIRS      := $(filter-out fixes/baseq3/pak9-ps4 fixes/baseq3/pak9-ps4/%,$(shell find fixes -type d 2>/dev/null))
 
-# Each flavor only bundles its own splash zip and relevant pk3 dirs.
-# Exclude splash zips and pk3s for the other flavors.
-ifeq ($(FLAVOR),ta)
-    FIX_FILES := $(filter-out fixes/splash.zip fixes/oa.zip, $(FIX_FILES_ALL))
-else ifeq ($(FLAVOR),oa)
-    FIX_FILES := $(filter-out fixes/splash.zip fixes/ta.zip, $(FIX_FILES_ALL))
-else ifeq ($(FLAVOR),classic)
-    FIX_FILES := $(filter-out fixes/ta.zip fixes/oa.zip fixes/missionpack/pak4-ps4.pk3, $(FIX_FILES_ALL))
+# Classic excludes the missionpack pak4 fix (TA-only); every other flavor
+# bundles everything else in fixes/ (per-variant folder selection happens at
+# runtime via PS4_InstallFixes, gated by STANDALONETA/STANDALONEOA).
+ifeq ($(FLAVOR),classic)
+    FIX_FILES := $(filter-out fixes/missionpack/pak4-ps4.pk3, $(FIX_FILES_ALL))
 else
-    FIX_FILES := $(filter-out fixes/ta.zip fixes/oa.zip, $(FIX_FILES_ALL))
+    FIX_FILES := $(FIX_FILES_ALL)
 endif
 
 # Emit one <file> entry per fix file
@@ -578,6 +576,7 @@ pkg.gp4: eboot.bin sce_sys/param.sfo icon $(FLAVOR_STAMP)
 	@printf '\t\t\t<dir targ_name="baseoa">\n' >> $@
 	@$(foreach d,$(filter fixes/baseoa/%,$(FIX_DIRS)),printf '\t\t\t\t<dir targ_name="$(notdir $(d))" />\n' >> $@;)
 	@printf '\t\t\t</dir>\n' >> $@
+	@printf '\t\t\t<dir targ_name="shaderbin" />\n' >> $@
 	@printf '\t\t</dir>\n' >> $@
 	@printf '\t</rootdir>\n' >> $@
 	@printf '</psproject>\n' >> $@

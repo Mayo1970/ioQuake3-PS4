@@ -39,13 +39,14 @@ Required by `PkgTool.Core` (bundled in the toolchain) to generate the `.pkg`.
 Install the [.NET SDK](https://dotnet.microsoft.com/download) and ensure
 `dotnet` is on your PATH.
 
-### 5. Runtime modules (required, not included)
+### 5. Runtime modules (not required)
 
-The GLES2 driver (`libScePigletv2VSH.sprx`) and the runtime shader compiler
-(`libSceShaccVSH.sprx`) are devkit-only Sony modules not present on retail
-firmware. You must supply both yourself and FTP them to
-`/data/self/system/common/lib/` on the console. See the
-[PS4 directory layout](#ps4-directory-layout) section below.
+Nothing to FTP here. Piglet (Sony's GLES2/EGL driver) loads automatically
+from the console's own firmware, and all shaders ship precompiled in the
+PKG -- the runtime shader compiler (`libSceShaccVSH.sprx`, a devkit-only
+module) is never needed. Hardware-verified booting with both
+`libScePigletv2VSH.sprx` and `libSceShaccVSH.sprx` absent from
+`/data/self/system/common/lib/`.
 
 ## Building
 
@@ -98,9 +99,7 @@ fixes/
 │   └── pak9-ps4.pk3
 ├── baseoa/
 │   └── 
-├── splash.zip               ← boot splash (Quake 3 / CLASSIC)
-├── ta.zip                   ← boot splash (Team Arena)
-└── oa.zip                   ← boot splash (Open Arena)
+└── shaderbin/               ← precompiled shader binaries, shared by every variant
 ```
 
 Files are auto-detected anywhere under the three game folders (`baseq3/`,
@@ -138,12 +137,7 @@ To force a reinstall of updated fix files, delete the marker
 │   └── pak3.pk3
 └── ioquake3log.txt          ← written only in debug builds
 ```
-**You'll also need the OpenGL module `libScePigletv2VSH.sprx` and the shader compiler module `libSceShaccVSH.sprx`. These are devkit-only Sony modules not present on retail firmware; supply your own and FTP them into place.**
-```
-/data/self/system/common/lib/
-├── libScePigletv2VSH.sprx   ← FTP here
-└── libSceShaccVSH.sprx      ← FTP here
-```
+No Sony modules need to be FTP'd anywhere -- see [Runtime modules](#5-runtime-modules-not-required) above.
 
 ---
 
@@ -294,12 +288,13 @@ To play on Dreamcast community servers you also need `dc-mappack.pk3`, which con
 
 - **Renderer:** renderergl2 (programmable pipeline). GLES 2.0 via Piglet.
   Fixed-function GL1 calls do not exist in GLES 2, so renderergl1 is not used.
-- **Shaders:** compiled at runtime as GLSL ES 1.00 (`#version 100`) via
-  `libSceShaccVSH.sprx`. ~62 variants compile in ~16 seconds on first boot.
-  The Piglet GLES2 runtime and the ShaccVSH compiler module are loaded from
-  `/data/self/system/common/lib/` -- both are devkit-only components not
-  present on retail FW 9.00 out of the box, so they must be supplied and FTP'd
-  into place (see [Runtime modules](#5-runtime-modules-required-not-included)).
+- **Shaders:** GLSL ES 1.00 (`#version 100`) sources are compiled offline, once,
+  into Piglet's native per-stage Shader Binary format and shipped in
+  `fixes/shaderbin/` (124 blobs, ~1.5 MB, all four variants share one set).
+  Loaded via `glShaderBinary` at boot -- no runtime compile, no ShaccVSH
+  dependency. A source-compile fallback exists (`ps4_shaderbin.c`) for
+  capturing newly added shader content in a debug build, but ships nothing
+  extra to end users.
 - **Shadow maps:** depth-only FBOs return `GL_FRAMEBUFFER_UNSUPPORTED` on
   Piglet. Shadow mapping is effectively disabled; the engine falls back to
   no-shadow rendering gracefully.

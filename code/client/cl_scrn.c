@@ -160,7 +160,7 @@ static void SCR_DrawChar( int x, int y, float size, int ch ) {
 void SCR_DrawSmallChar( int x, int y, int ch ) {
 	int row, col;
 	float frow, fcol;
-	float size;
+	float vsize, hsize;
 
 	ch &= 255;
 
@@ -177,11 +177,19 @@ void SCR_DrawSmallChar( int x, int y, int ch ) {
 
 	frow = row*0.0625;
 	fcol = col*0.0625;
-	size = 0.0625;
+	vsize = 0.0625;
+#ifdef ELITEFORCE
+	// EF's "gfx/2d/charsgrid_med" is a 32-column x 16-row atlas, not the vanilla
+	// 16x16 "bigchars" grid -- half-width UV per glyph. Verified against ioEF's
+	// own cl_scrn.c.
+	hsize = 0.03125;
+#else
+	hsize = 0.0625;
+#endif
 
 	re.DrawStretchPic( x, y, g_smallchar_width, g_smallchar_height,
-					   fcol, frow, 
-					   fcol + size, frow + size, 
+					   fcol, frow,
+					   fcol + hsize, frow + vsize,
 					   cls.charSetShader );
 }
 

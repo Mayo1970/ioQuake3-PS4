@@ -44,7 +44,7 @@ make -C $proj clean           # wipe build/ sce_sys/ pkg artifacts
 LLVM 18 is auto-detected at `C:\Program Files\LLVM\bin` if `clang` is not on PATH.
 Toolchain lives at `…\DEVkits\OpenOrbis-PS4-Toolchain` (note: **DEVkits**, not devkit).
 
-**Four variants, one Makefile** (flavor selected by `make <flavor>` shorthand or `XX=1`):
+**Five variants, one Makefile** (flavor selected by `make <flavor>` shorthand or `XX=1`):
 
 | Command | Title ID | Base game | Boot extra | Define |
 |---|---|---|---|---|
@@ -52,6 +52,9 @@ Toolchain lives at `…\DEVkits\OpenOrbis-PS4-Toolchain` (note: **DEVkits**, not
 | `make ta` | QUAK03001 | baseq3 | `+set fs_game missionpack` | `-DSTANDALONETA` |
 | `make oa` | QUAK03002 | baseoa | — | `-DSTANDALONEOA` |
 | `make classic` | QUAK03003 | baseq3 | legacy proto 43 | `-DCLASSIC -DLEGACY_PROTOCOL` |
+| `make ef` | QUAK03004 | baseEF | proto 26, no fix-pak, no bots (v1) | `-DELITEFORCE` |
+
+`ef` is **not** in `all-flavors` — it stays a standalone target until its port work is verified on hardware.
 
 Per-variant object dirs (`build/obj/{q3,ta,oa,classic}/{release,debug}`) plus a `build/.flavor_*` stamp
 mean you never need `make clean` on the **build tree** when switching variants — and switching forces a
@@ -369,6 +372,116 @@ Wii/PS3 ports.
 
 ---
 
+## Elite Force build (EF)
+
+`make ef` targets Star Trek Voyager: Elite Force, using retail QVMs as-is (no fix-pak, no QVM patch in
+v1). All EF logic is behind `#ifdef ELITEFORCE` and must not affect Q3/TA/OA/Classic builds.
+**Hardware-verified for LAN/Internet discovery, hosting, connecting, and gameplay movement; not yet in
+`all-flavors`.** Reference sources used to verify the invariants below: the PS3 EF port (same lineage,
+further along) and a plain `ioef`/`ioef-cmod` PC source tree — when in doubt, diff against those rather
+than re-deriving from vanilla.
+
+Durable invariants — do not "fix" these into matching vanilla or CLASSIC without re-reading ioEF's own
+source, both have bitten this port before:
+- **`MSG_WriteDeltaUsercmd`/`MSG_ReadDeltaUsercmd`, not the `*Key` variants, unconditionally.** EF's usercmd
+  wire format is always the plain delta writer/reader (`cl_input.c` `CL_WritePacket`, `sv_client.c`
+  `SV_UserMove`) — never `MSG_WriteDeltaUsercmdKey`/`MSG_ReadDeltaUsercmdKey` (a modern ioquake3 anti-cheat
+  addition EF's protocol predates). This is **not gated on `clc.compat`/`cl->compat`** — EF never uses the
+  keyed format at all, unlike CLASSIC which only uses the plain writer when `compat` is true. Getting this
+  wrong doesn't crash or desync the bitstream (both writers/readers consume the same byte count per field);
+  it just silently corrupts movement, seen on hardware as rubber-banding/erratic position correction
+  ("weird movements") that eventually degrades into a dead connection. The declaration in `qcommon.h` must
+  be guarded `#if defined(CLASSIC) || defined(ELITEFORCE)` — matching only `#ifdef CLASSIC` there while the
+  definition in `msg.c` is `CLASSIC || ELITEFORCE` compiles fine for CLASSIC/vanilla and silently breaks
+  only the EF build with an implicit-declaration error, easy to miss.
+- **`msg.c`'s 0x80+/`%` string-filter skip (`#ifndef ELITEFORCE`) in `MSG_WriteString`/`MSG_WriteBigString`/
+  `MSG_ReadString`/`MSG_ReadBigString`/`MSG_ReadStringLine` is unconditional, not compat-gated** — it must
+  stay skipped for EF on every string read/write regardless of `msg->compat`, or high-bit-set bytes get
+  silently mangled to `.` in server commands/configstrings/chat.
+- **`CL_PacketEvent` must stamp `msg->compat = clc.compat` on every incoming packet** (`#ifdef ELITEFORCE`,
+  right after `clc.lastPacketTime = cls.realtime;`). `msg_t.compat` doesn't inherit `clc.compat` on its
+  own — every downstream compat check (`Netchan_Process`'s unscramble, `CL_ParseServerMessage`'s EOF
+  sentinel, every compat-gated `MSG_Read*`/`MSG_Write*` branch) reads `msg->compat` directly off the
+  packet's own `msg_t`, not the connection state.
+- **The `connect` packet must be sent via plain `NET_OutOfBandPrint`, never `NET_OutOfBandData`** (the
+  Huffman-compressed format vanilla ioquake3 uses for that one packet) — `cl_main.c`'s `CA_CHALLENGING`
+  case in `CL_CheckForResend` needs an explicit `#elif defined(ELITEFORCE)` branch alongside CLASSIC's, or
+  a real EF server can't decompress it and rejects with "Server uses protocol version N (yours is 0)".
+  The server side needs the matching guard: `sv_main.c`'s `SV_ConnectionlessPacket` only Huffman-decompresses
+  an incoming `connect` packet when neither `CLASSIC` nor `ELITEFORCE` is defined (`#if !defined(CLASSIC) &&
+  !defined(ELITEFORCE)`) — get this wrong (e.g. `#ifndef CLASSIC` alone) and every EF connect, including the
+  local/loopback one single player relies on, gets its plaintext info string mangled before parsing, so the
+  server never replies and the client is stuck retrying forever ("Connecting to localhost"). Verified against
+  ioEF's own `sv_main.c`.
+- **`infoResponse`/`getinfo` replies are quote-wrapped, not newline-terminated** — `CL_ServerInfoPacket`
+  must strip the wrapping `"..."` and reposition the read cursor before the normal `MSG_ReadString`, or the
+  leading `"` corrupts every `Info_ValueForKey` lookup that follows (silently, no error — responses just
+  never match and get dropped).
+- **`getserversResponse`/`getserversExtResponse` addresses are hex-encoded ASCII, not raw binary** —
+  `CL_ServersResponsePacket` needs the same hex-decode `CL_GlobalServers_f` uses for the query itself, or
+  parsed addresses are garbage.
+- **Master query for `globalservers` omits the gamename token** — send `getservers <protocol>`, not
+  `getservers <gamename> <protocol>`; `master.stef1.ravensoft.com` predates the modern dpmaster
+  gamename-qualified format and silently ignores it. `sv_master2` defaults to the community master
+  `efmaster.tjps.eu` (not vanilla's `directory.ioquake3.org`, which never has EF servers on it) — matches
+  ioEF upstream and the VoyagerNX EF port.
+- **`svc_voipSpeex`/`svc_voipOpus` must still consume their payload bytes even when `USE_VOIP` isn't built**
+  (no mic/opus wiring on console). `CL_ParseVoip`'s call sites are gated `#ifdef USE_VOIP`; without a
+  fallback that reads-and-discards the same sender/generation/sequence/frames/packetsize/flags/payload
+  sequence, the `cmd` byte is consumed but the rest of the voice packet isn't, desyncing the entire
+  bitstream from that point on (`ERR_DROP "CL_ParseServerMessage: Illegible server message"`) the moment
+  any VOIP-enabled server (e.g. `ioef-cmod`) sends real voice data.
+- **The client's native console/notify charset is EF's own `gfx/2d/charsgrid_med`, not vanilla's
+  `gfx/2d/bigchars`** (which doesn't exist in `baseEF` and silently resolves to shader handle `0`/the
+  default missing-texture shader — `RE_RegisterShader` prints no warning on this path, so it's silent
+  corruption, not a log error). `CL_InitRenderer` (`cl_main.c`) must register it with `RegisterShaderNoMip`
+  under `#ifdef ELITEFORCE`, and `SCR_DrawSmallChar` (`cl_scrn.c`) must use a half-width UV cell (`hsize =
+  0.03125` vs `0.0625`) since `charsgrid_med` is a 32-column × 16-row atlas, not vanilla's 16×16 grid — get
+  only the shader name right without the UV fix and glyphs sample the wrong/adjacent character instead of
+  rendering as blank squares. This only affects the transient top-left chat/print overlay (`Con_DrawNotify`)
+  and typed console input — retail `cgame.qvm`/`ui.qvm` (HUD, menus, scoreboard) draw their own text via
+  their own compiled-in charset and are unaffected. Verified against ioEF's own `cl_main.c`/`cl_scrn.c`.
+- **`R_AddEntitySurfaces` (`tr_main.c`) must add EF's extra `refEntityType_t` values** (`RT_ORIENTEDSPRITE`,
+  `RT_ALPHAVERTPOLY`, `RT_LINE`, `RT_ORIENTEDLINE`, `RT_LINE2`, `RT_BEZIER`, `RT_CYLINDER`,
+  `RT_ELECTRICITY`) to the same "procedurally generated, not culled" group as `RT_SPRITE`/`RT_BEAM` —
+  `tr_surface.c`'s `RB_SurfaceEntity` already draws all of them, but the front-end scene-gathering step
+  didn't know about them and hit `default: ri.Error(ERR_DROP, "Bad reType")` the instant a Trek
+  weapon-fire effect (beam/cylinder/electricity) appeared, dropping straight to the main menu.
+- **Protocol: `PROTOCOL_VERSION 26`, `PROTOCOL_LEGACY_VERSION 24` — the two are deliberately different**
+  (unlike CLASSIC, where legacy == current). Master/auth/update hosts are `*.ravensoft.com`; heartbeat
+  string is `STEF1`; master/auth port is `27953` (not the usual `27950`/`27952`).
+- **Trap ABI does not line up with vanilla or CLASSIC at the same ordinal.** `cgameImport_t`/`uiImport_t`/
+  `gameImport_t` (and their `*Export_t` counterparts) reset numbering at fixed anchors
+  (`CG_MEMSET=100`, `UI_MEMSET=100`, `BOTLIB_SETUP=200`, `BOTLIB_AAS_*=300`, `BOTLIB_EA_*=400`,
+  `BOTLIB_AI_*=500`) but diverge in count/order between those anchors, and argument counts can differ even
+  when a trap name matches (e.g. EF's `UI_KEY_EVENT` takes 1 arg, vanilla's takes 2). A misroute is a
+  silent wrong-function call at runtime, not a compile error — any new direct `VM_Call(...)` site touching
+  cgame/ui/game must be cross-checked against ioEF's own header enum, not assumed mergeable with an
+  existing flavor's dispatch.
+- **No bots for v1.** `EA_UseItem`/`EA_DropItem`/`EA_UseInv`/`EA_DropInv` and a 2-arg `BotSetChatName` are
+  missing engine-side implementations (`code/botlib/botlib.h` lacks the function pointers PS3's port
+  added) — those EF trap cases fall to `default:`/`Com_Error` rather than being silently misrouted.
+- **Renderer ABI:** `refEntity_t`'s sprite/line/bezier/cylinder/electricity fields are a union
+  (`e->data.*`) instead of flat `radius`/`rotation`; `glconfig_t`'s ABI tripwire in `tr_init.c` is
+  `sizeof(glconfig_t) == 5192` for EF (vs `11332` vanilla) — recompute by hand if the struct changes, don't
+  copy a sibling port's literal.
+- **Config file is `hmconfig.cfg`** (ioEF's own name), not `efconfig.cfg` (PS3 port's choice) — deliberate,
+  confirmed against ioEF source.
+- **CD-key gate needs two engine-side fixes, both upstream ioEF bugs.** Retail `ui.qvm`'s `UI_MainMenu`
+  gates on cvar `ui_cdkeychecked` (no "2") — ioEF's own `CL_InitUI` sets `ui_cdkeychecked2` instead, which
+  nothing reads. It also sets its cvar *after* `VM_Call(uivm, UI_INIT, ...)`, but retail `UI_INIT`
+  evaluates the gate synchronously during that same call, so setting it after is always one call late.
+  Fix (`cl_ui.c`, `CL_InitUI`): `Cvar_Set` both `ui_cdkeychecked` and `ui_cdkeychecked2` to `"1"`
+  immediately after `VM_Create`, before the first `UI_INIT` call. Relies on this engine's `Cvar_Get`
+  merging flags without touching the stored value when the QVM later re-registers the cvar as `CVAR_ROM` —
+  re-verify that behavior before reusing this fix on a different engine fork.
+- **`code/game`/`code/cgame`/`code/q3_ui`/`code/ui` are not compiled for any flavor** — EF ships retail
+  QVMs only; no source in this tree backs them. Bot support (EF's `be_ea.c`-equivalent action enums) is
+  compile-correctness plumbing only if added — full bot behavior is out of scope for v1, as is any new
+  fix-pak or QVM rebuild.
+
+---
+
 ## Known-incomplete items
 
 - **Banner Z-fighting** — 16-bit FBO depth has ~256× less precision than desktop 24-bit; banners flush to
@@ -388,7 +501,8 @@ Wii/PS3 ports.
 3. If changing hunk/zone size, update `user_mem.c` try_sizes too.
 4. If touching UI/OSK/menus, rebuild the QVM in `fixes/*/pak9-ps4s.pk3` (and `pak4-ps4.pk3` for TA) —
    C edits alone don't reach the hardware.
-5. Keep every change behind `#ifdef __ORBIS__` (CLASSIC behaviour behind `#ifdef CLASSIC`); prefer
+5. Keep every change behind `#ifdef __ORBIS__` (CLASSIC behaviour behind `#ifdef CLASSIC`, EF behaviour
+   behind `#ifdef ELITEFORCE`); prefer
    `code/ps4/`.
 6. Don't add OpenAL / curl / VoIP / SDL-GL / JIT — deliberately excluded.
 7. No AI attribution in commits.

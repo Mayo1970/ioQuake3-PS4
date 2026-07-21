@@ -387,12 +387,14 @@ void MSG_WriteString( msg_t *sb, const char *s ) {
 		}
 		Q_strncpyz( string, s, sizeof( string ) );
 
+#ifndef ELITEFORCE
 		// get rid of 0x80+ and '%' chars, because old clients don't like them
 		for ( i = 0 ; i < l ; i++ ) {
 			if ( ((byte *)string)[i] > 127 || string[i] == '%' ) {
 				string[i] = '.';
 			}
 		}
+#endif
 
 		MSG_WriteData (sb, string, l+1);
 	}
@@ -413,12 +415,14 @@ void MSG_WriteBigString( msg_t *sb, const char *s ) {
 		}
 		Q_strncpyz( string, s, sizeof( string ) );
 
+#ifndef ELITEFORCE
 		// get rid of 0x80+ and '%' chars, because old clients don't like them
 		for ( i = 0 ; i < l ; i++ ) {
 			if ( ((byte *)string)[i] > 127 || string[i] == '%' ) {
 				string[i] = '.';
 			}
 		}
+#endif
 
 		MSG_WriteData (sb, string, l+1);
 	}
@@ -522,10 +526,12 @@ char *MSG_ReadString( msg_t *msg ) {
 		if ( c == '%' ) {
 			c = '.';
 		}
+#ifndef ELITEFORCE
 		// don't allow higher ascii values
 		if ( c > 127 ) {
 			c = '.';
 		}
+#endif
 		// break only after reading all expected data from bitstream
 		if ( l >= sizeof(string)-1 ) {
 			break;
@@ -555,10 +561,12 @@ char *MSG_ReadBigString( msg_t *msg ) {
 		if ( c == '%' ) {
 			c = '.';
 		}
+#ifndef ELITEFORCE
 		// don't allow higher ascii values
 		if ( c > 127 ) {
 			c = '.';
 		}
+#endif
 		// break only after reading all expected data from bitstream
 		if ( l >= sizeof(string)-1 ) {
 			break;
@@ -588,10 +596,12 @@ char *MSG_ReadStringLine( msg_t *msg ) {
 		if ( c == '%' ) {
 			c = '.';
 		}
+#ifndef ELITEFORCE
 		// don't allow higher ascii values
 		if ( c > 127 ) {
 			c = '.';
 		}
+#endif
 		// break only after reading all expected data from bitstream
 		if ( l >= sizeof(string)-1 ) {
 			break;
@@ -639,11 +649,11 @@ extern cvar_t *cl_shownet;
 
 #define	LOG(x) if( cl_shownet && cl_shownet->integer == 4 ) { Com_Printf("%s ", x ); };
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 /*
 =============================================================================
 
-delta functions (classic protocol 43, no XOR key)
+delta functions (classic protocol 43 / EF, no XOR key)
 
 =============================================================================
 */
@@ -750,10 +760,10 @@ usercmd_t communication
 ============================================================================
 */
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 /*
 =====================
-MSG_WriteDeltaUsercmd (classic protocol 43)
+MSG_WriteDeltaUsercmd (classic protocol 43 / EF 8-bit buttons)
 =====================
 */
 void MSG_WriteDeltaUsercmd( msg_t *msg, usercmd_t *from, usercmd_t *to ) {
@@ -797,7 +807,7 @@ void MSG_ReadDeltaUsercmd( msg_t *msg, usercmd_t *from, usercmd_t *to ) {
 	to->buttons = MSG_ReadDelta( msg, from->buttons, 8);    // proto 43: 8-bit buttons
 	to->weapon = MSG_ReadDelta( msg, from->weapon, 8);
 }
-#endif
+#endif // CLASSIC || ELITEFORCE
 
 /*
 =====================
@@ -832,7 +842,11 @@ void MSG_WriteDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *
 	MSG_WriteDeltaKey( msg, key, from->forwardmove, to->forwardmove, 8 );
 	MSG_WriteDeltaKey( msg, key, from->rightmove, to->rightmove, 8 );
 	MSG_WriteDeltaKey( msg, key, from->upmove, to->upmove, 8 );
+#ifdef ELITEFORCE
+	MSG_WriteDeltaKey( msg, key, from->buttons, to->buttons, 8 );
+#else
 	MSG_WriteDeltaKey( msg, key, from->buttons, to->buttons, 16 );
+#endif
 	MSG_WriteDeltaKey( msg, key, from->weapon, to->weapon, 8 );
 }
 
@@ -862,7 +876,11 @@ void MSG_ReadDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *t
 		to->upmove = MSG_ReadDeltaKey( msg, key, from->upmove, 8);
 		if( to->upmove == -128 )
 			to->upmove = -127;
+#ifdef ELITEFORCE
+		to->buttons = MSG_ReadDeltaKey( msg, key, from->buttons, 8);
+#else
 		to->buttons = MSG_ReadDeltaKey( msg, key, from->buttons, 16);
+#endif
 		to->weapon = MSG_ReadDeltaKey( msg, key, from->weapon, 8);
 	} else {
 		to->angles[0] = from->angles[0];
@@ -1059,6 +1077,50 @@ netField_t classicPlayerStateFields[] =
 #undef PSF
 #endif // CLASSIC
 
+#ifdef ELITEFORCE
+// Predefined change-bit-vectors extracted from the retail EF (STVoy 1.13/1.32,
+// protocol 24) binary. Same compression trick as Classic's pVectors above, but
+// EF's own vector pool -- entirely different bit patterns, own field table.
+#define PVECTOR_BITS  5
+#define PVECTOR_BYTES 8
+#define PVECTOR_NUM   ((1 << PVECTOR_BITS) - 1)
+
+static byte pVectors[PVECTOR_NUM][PVECTOR_BYTES] =
+{
+	{0x60, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x60, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x40, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x20, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x20, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x40, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x60, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x60, 0x80, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00},
+	{0x60, 0x80, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00},
+	{0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00},
+	{0x00, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0xe0, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x60, 0xc0, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00},
+	{0x60, 0xc0, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00},
+	{0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x60, 0xc0, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00},
+	{0x60, 0xc0, 0x00, 0x00, 0x00, 0x10, 0x02, 0x00},
+	{0x60, 0x80, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00},
+	{0x60, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00},
+	{0xe1, 0x00, 0xc0, 0x01, 0x90, 0x00, 0x00, 0x00},
+	{0xed, 0x07, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00},
+	{0x60, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00},
+	{0x62, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00},
+	{0x02, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00},
+	{0xe0, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	{0x60, 0x80, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00},
+};
+#endif // ELITEFORCE
+
 #ifdef CLASSIC
 // Retail (1.13n/1.16n, protocol 43) entity_event_t numbers differ from modern
 // ioq3's: retail lacks the TA-era inserts EV_GLOBAL_TEAM_SOUND (modern 47) and
@@ -1163,6 +1225,62 @@ void Classic_TranslatePlayerstateToRetail( playerState_t *ps ) {
 }
 #endif // CLASSIC
 
+#ifdef ELITEFORCE
+// EF's own field table, in EF wire order. No generic1 (dropped from entityState_t).
+netField_t	entityStateFields[] =
+{
+{ NETF(eType), 8 },
+{ NETF(eFlags), 24 },
+{ NETF(pos.trType), 8 },
+{ NETF(pos.trTime), 32 },
+{ NETF(pos.trDuration), 32 },
+{ NETF(pos.trBase[0]), 0 },
+{ NETF(pos.trBase[1]), 0 },
+{ NETF(pos.trBase[2]), 0 },
+{ NETF(pos.trDelta[0]), 0 },
+{ NETF(pos.trDelta[1]), 0 },
+{ NETF(pos.trDelta[2]), 0 },
+{ NETF(apos.trType), 8 },
+{ NETF(apos.trTime), 32 },
+{ NETF(apos.trDuration), 32 },
+{ NETF(apos.trBase[0]), 0 },
+{ NETF(apos.trBase[1]), 0 },
+{ NETF(apos.trBase[2]), 0 },
+{ NETF(apos.trDelta[0]), 0 },
+{ NETF(apos.trDelta[1]), 0 },
+{ NETF(apos.trDelta[2]), 0 },
+{ NETF(time), 32 },
+{ NETF(time2), 32 },
+{ NETF(origin[0]), 0 },
+{ NETF(origin[1]), 0 },
+{ NETF(origin[2]), 0 },
+{ NETF(origin2[0]), 0 },
+{ NETF(origin2[1]), 0 },
+{ NETF(origin2[2]), 0 },
+{ NETF(angles[0]), 0 },
+{ NETF(angles[1]), 0 },
+{ NETF(angles[2]), 0 },
+{ NETF(angles2[0]), 0 },
+{ NETF(angles2[1]), 0 },
+{ NETF(angles2[2]), 0 },
+{ NETF(otherEntityNum), GENTITYNUM_BITS },
+{ NETF(otherEntityNum2), GENTITYNUM_BITS },
+{ NETF(groundEntityNum), GENTITYNUM_BITS },
+{ NETF(loopSound), 16 },
+{ NETF(constantLight), 32 },
+{ NETF(modelindex), 8 },
+{ NETF(modelindex2), 8 },
+{ NETF(frame), 16 },
+{ NETF(clientNum), 8 },
+{ NETF(solid), 24 },
+{ NETF(event), 10 },
+{ NETF(eventParm), 8 },
+{ NETF(powerups), 16 },
+{ NETF(weapon), 8 },
+{ NETF(legsAnim), 8 },
+{ NETF(torsoAnim), 8 },
+};
+#else
 netField_t	entityStateFields[] =
 {
 { NETF(pos.trTime), 32 },
@@ -1217,6 +1335,7 @@ netField_t	entityStateFields[] =
 { NETF(constantLight), 32 },
 { NETF(frame), 16 }
 };
+#endif // ELITEFORCE
 
 
 // if (int)f == f and (int)f + ( 1<<(FLOAT_INT_BITS-1) ) < ( 1 << FLOAT_INT_BITS )
@@ -1256,6 +1375,13 @@ void MSG_WriteDeltaEntity( msg_t *msg, struct entityState_s *from, struct entity
 		numFields = ARRAY_LEN( entityStateFields );
 	}
 	field = fields;
+#elif defined(ELITEFORCE)
+	byte		vector[PVECTOR_BYTES];
+	int			vectorIndex = -1;
+
+	numFields = ARRAY_LEN( entityStateFields );
+	fields = entityStateFields;
+	field = entityStateFields;
 #else
 	numFields = ARRAY_LEN( entityStateFields );
 	fields = entityStateFields;
@@ -1282,7 +1408,7 @@ void MSG_WriteDeltaEntity( msg_t *msg, struct entityState_s *from, struct entity
 		Com_Error (ERR_FATAL, "MSG_WriteDeltaEntity: Bad entity number: %i", to->number );
 	}
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(msg->compat)
 		Com_Memset(vector, 0, sizeof(vector));
 #endif
@@ -1293,7 +1419,7 @@ void MSG_WriteDeltaEntity( msg_t *msg, struct entityState_s *from, struct entity
 		fromF = (int *)( (byte *)from + fields[i].offset );
 		toF   = (int *)( (byte *)to   + fields[i].offset );
 		if ( *fromF != *toF ) {
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 			if(msg->compat)
 				vector[i >> 3] |= 1 << (i & 0x07);
 			else
@@ -1302,7 +1428,7 @@ void MSG_WriteDeltaEntity( msg_t *msg, struct entityState_s *from, struct entity
 		}
 	}
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if( (msg->compat && !((int*)vector)[0] && !((int*)vector)[1]) || (!msg->compat && !lc) )
 #else
 	if ( lc == 0 )
@@ -1323,7 +1449,7 @@ void MSG_WriteDeltaEntity( msg_t *msg, struct entityState_s *from, struct entity
 	MSG_WriteBits( msg, 0, 1 );			// not removed
 	MSG_WriteBits( msg, 1, 1 );			// we have a delta
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(msg->compat)
 	{
 		for (i = 0; i < PVECTOR_NUM; i++)
@@ -1350,11 +1476,11 @@ void MSG_WriteDeltaEntity( msg_t *msg, struct entityState_s *from, struct entity
 
 	oldsize += numFields;
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(msg->compat)
 	{
-		// Classic (proto 43): bit vector already encodes which fields changed.
-		// No per-field changed/unchanged bit. Write raw values for changed fields.
+		// Compat mode (Classic proto 43 / EF legacy proto 24): bit vector already
+		// encodes which fields changed. No per-field changed/unchanged bit.
 		for ( i = 0 ; i < numFields ; i++ ) {
 			fromF = (int *)( (byte *)from + fields[i].offset );
 			toF   = (int *)( (byte *)to   + fields[i].offset );
@@ -1442,7 +1568,7 @@ void MSG_ReadDeltaEntity( msg_t *msg, entityState_t *from, entityState_t *to,
 	int			print;
 	int			trunc;
 	int			startBit, endBit;
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	int			vectorIndex = 0;
 	byte		vector_space[PVECTOR_BYTES];
 	byte		*vector = vector_space;
@@ -1488,7 +1614,7 @@ void MSG_ReadDeltaEntity( msg_t *msg, entityState_t *from, entityState_t *to,
 	numFields = ARRAY_LEN( entityStateFields );
 #endif
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(!msg->compat)
 #endif
 	{
@@ -1509,10 +1635,10 @@ void MSG_ReadDeltaEntity( msg_t *msg, entityState_t *from, entityState_t *to,
 
 	to->number = number;
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(msg->compat)
 	{
-		// Classic (proto 43): read predefined vector index, then per-field bits.
+		// Compat mode: read predefined vector index, then per-field bits.
 		vectorIndex = MSG_ReadBits( msg, PVECTOR_BITS );
 		if (print) {
 			if (vectorIndex == PVECTOR_NUM)
@@ -1617,9 +1743,65 @@ plyer_state_t communication
 // using the stringizing operator to save typing...
 #define	PSF(x) #x,(size_t)&((playerState_t*)0)->x
 
-netField_t	playerStateFields[] = 
+#ifdef ELITEFORCE
+// EF's own field table. 4 event/eventParm slots (MAX_PS_EVENTS==4), damageShieldCount
+// and introTime added, no grapplePoint/generic1/loopSound/jumppad_ent (dropped from
+// playerState_t). rechargeTime/useTime are engine-local only, not wire-synced.
+netField_t	playerStateFields[] =
 {
-{ PSF(commandTime), 32 },				
+{ PSF(commandTime), 32 },
+{ PSF(pm_type), 8 },
+{ PSF(bobCycle), 8 },
+{ PSF(pm_flags), 16 },
+{ PSF(pm_time), -16 },
+{ PSF(origin[0]), 0 },
+{ PSF(origin[1]), 0 },
+{ PSF(origin[2]), 0 },
+{ PSF(velocity[0]), 0 },
+{ PSF(velocity[1]), 0 },
+{ PSF(velocity[2]), 0 },
+{ PSF(weaponTime), -16 },
+{ PSF(gravity), 16 },
+{ PSF(speed), 16 },
+{ PSF(delta_angles[0]), 16 },
+{ PSF(delta_angles[1]), 16 },
+{ PSF(delta_angles[2]), 16 },
+{ PSF(groundEntityNum), GENTITYNUM_BITS },
+{ PSF(legsTimer), 8 },
+{ PSF(torsoTimer), 12 },
+{ PSF(legsAnim), 8 },
+{ PSF(torsoAnim), 8 },
+{ PSF(movementDir), 4 },
+{ PSF(eFlags), 16 },
+{ PSF(eventSequence), 16 },
+{ PSF(events[0]), 8 },
+{ PSF(events[1]), 8 },
+{ PSF(events[2]), 8 },
+{ PSF(events[3]), 8 },
+{ PSF(eventParms[0]), 8 },
+{ PSF(eventParms[1]), 8 },
+{ PSF(eventParms[2]), 8 },
+{ PSF(eventParms[3]), 8 },
+{ PSF(externalEvent), 10 },
+{ PSF(externalEventParm), 8 },
+{ PSF(clientNum), 8 },
+{ PSF(weapon), 5 },
+{ PSF(weaponstate), 4 },
+{ PSF(viewangles[0]), 0 },
+{ PSF(viewangles[1]), 0 },
+{ PSF(viewangles[2]), 0 },
+{ PSF(viewheight), -8 },
+{ PSF(damageEvent), 8 },
+{ PSF(damageYaw), 8 },
+{ PSF(damagePitch), 8 },
+{ PSF(damageCount), 8 },
+{ PSF(damageShieldCount), 8 },
+{ PSF(introTime), 32 },
+};
+#else
+netField_t	playerStateFields[] =
+{
+{ PSF(commandTime), 32 },
 { PSF(origin[0]), 0 },
 { PSF(origin[1]), 0 },
 { PSF(bobCycle), 8 },
@@ -1653,7 +1835,7 @@ netField_t	playerStateFields[] =
 { PSF(damagePitch), 8 },
 { PSF(damageCount), 8 },
 { PSF(generic1), 8 },
-{ PSF(pm_type), 8 },					
+{ PSF(pm_type), 8 },
 { PSF(delta_angles[0]), 16 },
 { PSF(delta_angles[2]), 16 },
 { PSF(torsoTimer), 12 },
@@ -1668,6 +1850,7 @@ netField_t	playerStateFields[] =
 { PSF(jumppad_ent), GENTITYNUM_BITS },
 { PSF(loopSound), 16 }
 };
+#endif // ELITEFORCE
 
 /*
 =============
@@ -1707,7 +1890,7 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 #endif
 
 	lc = 0;
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(!msg->compat)
 #endif
 	{
@@ -1727,7 +1910,7 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 		fromF = (int *)( (byte *)from + fields[i].offset );
 		toF   = (int *)( (byte *)to   + fields[i].offset );
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 		if(msg->compat) {
 			if ( *fromF == *toF ) {
 				MSG_WriteBits( msg, 0, 1 );	// no change
@@ -1790,7 +1973,7 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 		}
 	}
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(!msg->compat && !statsbits && !persistantbits && !ammobits && !powerupbits)
 #else
 	if (!statsbits && !persistantbits && !ammobits && !powerupbits)
@@ -1800,7 +1983,7 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 		oldsize += 4;
 		return;
 	}
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(!msg->compat)
 #endif
 	MSG_WriteBits( msg, 1, 1 );	// changed
@@ -1899,6 +2082,16 @@ void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *t
 		if ( lc > numFields || lc < 0 )
 			Com_Error( ERR_DROP, "invalid playerState field count" );
 	}
+#elif defined(ELITEFORCE)
+	fields = playerStateFields;
+	numFields = ARRAY_LEN( playerStateFields );
+	if(msg->compat) {
+		lc = numFields;	// compat: all fields present, single EF table either way
+	} else {
+		lc = MSG_ReadByte(msg);
+		if ( lc > numFields || lc < 0 )
+			Com_Error( ERR_DROP, "invalid playerState field count" );
+	}
 #else
 	fields = playerStateFields;
 	numFields = ARRAY_LEN( playerStateFields );
@@ -1931,7 +2124,7 @@ void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *t
 			}
 		}
 	}
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(!msg->compat)
 #endif
 	for ( i = lc ; i < numFields ; i++ ) {
@@ -1942,7 +2135,7 @@ void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *t
 
 
 	// read the arrays
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if (msg->compat || MSG_ReadBits( msg, 1 ) ) {
 #else
 	if (MSG_ReadBits( msg, 1 ) ) {

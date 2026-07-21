@@ -211,7 +211,7 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	// get the reliable sequence acknowledge number
 	// NOTE: now sent with all server to client messages
 	//clc.reliableAcknowledge = MSG_ReadLong( msg );
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(msg->compat)
 		clc.reliableAcknowledge = MSG_ReadLong( msg );
 #endif
@@ -490,7 +490,7 @@ void CL_ParseGamestate( msg_t *msg ) {
 		if ( cmd == svc_EOF ) {
 			break;
 		}
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 		if ( msg->compat && cmd <= 0 ) {
 			break;
 		}
@@ -526,12 +526,12 @@ void CL_ParseGamestate( msg_t *msg ) {
 		}
 	}
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(!msg->compat)
 #endif
 	clc.clientNum = MSG_ReadLong(msg);
 	// read the checksum feed
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(!clc.demoplaying || !msg->compat)
 #endif
 	clc.checksumFeed = MSG_ReadLong( msg );
@@ -664,6 +664,47 @@ void CL_ParseDownload ( msg_t *msg ) {
 		CL_NextDownload ();
 	}
 }
+
+#ifndef USE_VOIP
+/*
+=====================
+CL_DiscardVoip
+
+This build has no VOIP support (no USE_VOIP -- no mic/opus wiring), but a
+server with VOIP enabled (e.g. an ioef-cmod EF server) still sends
+svc_voipSpeex/svc_voipOpus messages unconditionally. Without USE_VOIP, the
+switch case in CL_ParseServerMessage used to do nothing at all -- the cmd
+byte was consumed but the sender/generation/sequence/frames/packetsize/flags
+and the encoded payload that follow it were left unread, desyncing every
+message after the first voice packet ("Illegible server message"). Mirrors
+CL_ParseVoip's read order exactly, just without decoding.
+=====================
+*/
+static void CL_DiscardVoip( msg_t *msg ) {
+	unsigned char discard[4000];
+	int packetsize;
+	int bytesleft;
+
+	MSG_ReadShort(msg);            // sender
+	MSG_ReadByte(msg);             // generation
+	MSG_ReadLong(msg);             // sequence
+	MSG_ReadByte(msg);             // frames
+	packetsize = MSG_ReadShort(msg);
+	MSG_ReadBits(msg, VOIP_FLAGCNT);
+
+	if (packetsize < 0)
+		return;
+
+	bytesleft = packetsize;
+	while (bytesleft) {
+		int br = bytesleft;
+		if (br > (int)sizeof(discard))
+			br = sizeof(discard);
+		MSG_ReadData(msg, discard, br);
+		bytesleft -= br;
+	}
+}
+#endif
 
 #ifdef USE_VOIP
 static
@@ -878,7 +919,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		Com_Printf ("------------------\n");
 	}
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(!msg->compat) {
 #endif
 	MSG_Bitstream(msg);
@@ -889,7 +930,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 	if ( clc.reliableAcknowledge < clc.reliableSequence - MAX_RELIABLE_COMMANDS ) {
 		clc.reliableAcknowledge = clc.reliableSequence;
 	}
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	}
 #endif
 
@@ -912,13 +953,15 @@ void CL_ParseServerMessage( msg_t *msg ) {
 
 		cmd = MSG_ReadByte( msg );
 
+		// EF's own compat termination sentinel is cmd == -1 specifically (not any
+		// cmd <= 0 like Classic's proto 43) -- verified against ioEF's source.
 #ifdef CLASSIC
-		if(msg->compat && cmd <= 0) {
-			SHOWNET( msg, "END OF MESSAGE" );
-			break;
-		}
+		if ( (msg->compat && cmd <= 0) || cmd == svc_EOF ) {
+#elif defined(ELITEFORCE)
+		if ( cmd == svc_EOF || (msg->compat && cmd == -1) ) {
+#else
+		if ( cmd == svc_EOF ) {
 #endif
-		if (cmd == svc_EOF) {
 			SHOWNET( msg, "END OF MESSAGE" );
 			break;
 		}
@@ -953,11 +996,15 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		case svc_voipSpeex:
 #ifdef USE_VOIP
 			CL_ParseVoip( msg, qtrue );
+#else
+			CL_DiscardVoip( msg );
 #endif
 			break;
 		case svc_voipOpus:
 #ifdef USE_VOIP
 			CL_ParseVoip( msg, !clc.voipEnabled );
+#else
+			CL_DiscardVoip( msg );
 #endif
 			break;
 		}

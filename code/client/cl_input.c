@@ -362,8 +362,10 @@ CL_MouseEvent
 void CL_MouseEvent( int dx, int dy, int time ) {
 	if ( Key_GetCatcher( ) & KEYCATCH_UI ) {
 		VM_Call( uivm, UI_MOUSE_EVENT, dx, dy );
+#ifndef ELITEFORCE
 	} else if (Key_GetCatcher( ) & KEYCATCH_CGAME) {
 		VM_Call (cgvm, CG_MOUSE_EVENT, dx, dy);
+#endif
 	} else {
 		cl.mouseDx[cl.mouseIndex] += dx;
 		cl.mouseDy[cl.mouseIndex] += dy;
@@ -758,7 +760,7 @@ void CL_WritePacket( void ) {
 	Com_Memset( &nullcmd, 0, sizeof(nullcmd) );
 	oldcmd = &nullcmd;
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(clc.compat) {
 		MSG_InitOOB( &buf, data, sizeof(data) );
 		buf.compat = qtrue;
@@ -766,7 +768,7 @@ void CL_WritePacket( void ) {
 #endif
 	MSG_Init( &buf, data, sizeof(data) );
 	MSG_Bitstream( &buf );
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	}
 #endif
 	// write the current serverId so the server
@@ -881,12 +883,21 @@ void CL_WritePacket( void ) {
 		for ( i = 0 ; i < count ; i++ ) {
 			j = (cl.cmdNumber - count + i + 1) & CMD_MASK;
 			cmd = &cl.cmds[j];
+#ifdef ELITEFORCE
+			// EF's real usercmd wire format is always the plain delta writer,
+			// unconditionally -- it has no concept of the keyed-hash format
+			// below (a modern ioquake3 anti-cheat addition). Not gated on
+			// clc.compat: EF never uses MSG_WriteDeltaUsercmdKey at all.
+			// Verified against ioEF's own cl_input.c and the PS3 EF port.
+			MSG_WriteDeltaUsercmd (&buf, oldcmd, cmd);
+#else
 #ifdef CLASSIC
 			if(clc.compat)
 				MSG_WriteDeltaUsercmd (&buf, oldcmd, cmd);
 			else
 #endif
 			MSG_WriteDeltaUsercmdKey (&buf, key, oldcmd, cmd);
+#endif
 			oldcmd = cmd;
 		}
 	}

@@ -6,7 +6,9 @@
 #   make ta         -- Team Arena build
 #   make oa         -- OpenArena build
 #   make classic    -- Quake 3 Classic build (legacy protocol 43 for Dreamcast)
+#   make ef         -- Star Trek Voyager: Elite Force build
 #   make all-flavors-- Build all four (Q3, TA, OA, Classic) release packages
+#                      (EF not included yet -- not functional until the port lands)
 #   make release    -- Explicit release build
 #   make debug      -- Debug build
 # ============================================================================
@@ -15,15 +17,22 @@
 # Flavor selection (default: q3, set TA=1 or OA=1, or run `make ta` / `make oa`)
 # ============================================================================
 
-# Allow `make ta`, `make oa`, `make classic` as shorthands
-ifeq ($(MAKECMDGOALS),ta)
+# Allow `make ta`, `make oa`, `make classic` as shorthands. Use $(filter ...)
+# rather than $(ifeq $(MAKECMDGOALS),...) so this still matches when a second
+# goal is given on the same command line (e.g. `make ef debug`) -- MAKECMDGOALS
+# is then "ef debug", and a strict string-equality check silently misses it,
+# falling through to the default (vanilla q3) flavor with no error.
+ifneq ($(filter ta,$(MAKECMDGOALS)),)
     TA := 1
 endif
-ifeq ($(MAKECMDGOALS),oa)
+ifneq ($(filter oa,$(MAKECMDGOALS)),)
     OA := 1
 endif
-ifeq ($(MAKECMDGOALS),classic)
+ifneq ($(filter classic,$(MAKECMDGOALS)),)
     CLASSIC := 1
+endif
+ifneq ($(filter ef,$(MAKECMDGOALS)),)
+    EF := 1
 endif
 
 # Determine flavor (q3 is default)
@@ -48,6 +57,13 @@ else ifeq ($(CLASSIC),1)
     CONTENT_ID  := IV0000-QUAK03003_00-IOQ3PS4PORT00000
     ICON_SRC    := icons/qc/icon0.png
     DEFINES_EXTRA := -DCLASSIC -DLEGACY_PROTOCOL
+else ifeq ($(EF),1)
+    FLAVOR      := ef
+    TITLE       := Star Trek Voyager: Elite Force
+    TITLE_ID    := QUAK03004
+    CONTENT_ID  := IV0000-QUAK03004_00-IOQ3PS4PORT00000
+    ICON_SRC    := icons/ef/icon0.png
+    DEFINES_EXTRA := -DELITEFORCE
 else
     FLAVOR      := q3
     TITLE       := ioQuake 3
@@ -69,7 +85,7 @@ $(shell mkdir -p sce_sys)
 # Default target MUST be first
 # ============================================================================
 
-.PHONY: all release debug clean icon ta oa classic all-flavors
+.PHONY: all release debug clean icon ta oa classic ef all-flavors
 
 all: release
 
@@ -82,10 +98,13 @@ oa: release
 classic: release
 	@true
 
+ef: release
+	@true
+
 release: $(CONTENT_ID).pkg
 
 debug:
-	$(MAKE) DEBUG=1 $(CONTENT_ID).pkg
+	$(MAKE) DEBUG=1 TA=$(TA) OA=$(OA) CLASSIC=$(CLASSIC) EF=$(EF) $(CONTENT_ID).pkg
 
 # ============================================================================
 # Multi-flavor build target

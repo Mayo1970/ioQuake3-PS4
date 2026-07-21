@@ -335,8 +335,10 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return 0;
 	case G_FS_GETFILELIST:
 		return FS_GetFileList( VMA(1), VMA(2), VMA(3), args[4] );
+#ifndef ELITEFORCE
 	case G_FS_SEEK:
 		return FS_Seek( args[1], args[2], args[3] );
+#endif
 
 	case G_LOCATE_GAME_DATA:
 		SV_LocateGameData( VMA(1), args[2], args[3], VMA(4), args[5] );
@@ -357,14 +359,18 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return SV_AreaEntities( VMA(1), VMA(2), VMA(3), args[4] );
 	case G_ENTITY_CONTACT:
 		return SV_EntityContact( VMA(1), VMA(2), VMA(3), /*int capsule*/ qfalse );
+#ifndef ELITEFORCE
 	case G_ENTITY_CONTACTCAPSULE:
 		return SV_EntityContact( VMA(1), VMA(2), VMA(3), /*int capsule*/ qtrue );
+#endif
 	case G_TRACE:
 		SV_Trace( VMA(1), VMA(2), VMA(3), VMA(4), VMA(5), args[6], args[7], /*int capsule*/ qfalse );
 		return 0;
+#ifndef ELITEFORCE
 	case G_TRACECAPSULE:
 		SV_Trace( VMA(1), VMA(2), VMA(3), VMA(4), VMA(5), args[6], args[7], /*int capsule*/ qtrue );
 		return 0;
+#endif
 	case G_POINT_CONTENTS:
 		return SV_PointContents( VMA(1), args[2] );
 	case G_SET_BRUSH_MODEL:
@@ -423,11 +429,13 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case G_DEBUG_POLYGON_DELETE:
 		BotImport_DebugPolygonDelete( args[1] );
 		return 0;
+#ifndef ELITEFORCE
 	case G_REAL_TIME:
 		return Com_RealTime( VMA(1) );
 	case G_SNAPVECTOR:
 		Q_SnapVector(VMA(1));
 		return 0;
+#endif
 
 		//====================================
 
@@ -440,6 +448,10 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case BOTLIB_LIBVAR_GET:
 		return botlib_export->BotLibVarGet( VMA(1), VMA(2), args[3] );
 
+#ifdef ELITEFORCE
+	case BOTLIB_DEFINE:
+		return botlib_export->PC_AddGlobalDefine( VMA(1) );
+#else
 	case BOTLIB_PC_ADD_GLOBAL_DEFINE:
 		return botlib_export->PC_AddGlobalDefine( VMA(1) );
 	case BOTLIB_PC_LOAD_SOURCE:
@@ -450,6 +462,7 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return botlib_export->PC_ReadTokenHandle( args[1], VMA(2) );
 	case BOTLIB_PC_SOURCE_FILE_AND_LINE:
 		return botlib_export->PC_SourceFileAndLine( args[1], VMA(2), VMA(3) );
+#endif
 
 	case BOTLIB_START_FRAME:
 		return botlib_export->BotLibStartFrame( VMF(1) );
@@ -474,12 +487,16 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		}
 		return 0;
 
+#ifndef ELITEFORCE
+	// EF's own 300-anchor block uses AAS_ENTITY_VISIBLE/IN_FIELD_OF_VISION/VISIBLE_CLIENTS
+	// instead (marked FIXME:remove upstream, unimplemented here -- verified unused).
 	case BOTLIB_AAS_BBOX_AREAS:
 		return botlib_export->aas.AAS_BBoxAreas( VMA(1), VMA(2), VMA(3), args[4] );
 	case BOTLIB_AAS_AREA_INFO:
 		return botlib_export->aas.AAS_AreaInfo( args[1], VMA(2) );
 	case BOTLIB_AAS_ALTERNATIVE_ROUTE_GOAL:
 		return botlib_export->aas.AAS_AlternativeRouteGoals( VMA(1), args[2], VMA(3), args[4], args[5], VMA(6), args[7], args[8] );
+#endif
 	case BOTLIB_AAS_ENTITY_INFO:
 		botlib_export->aas.AAS_EntityInfo( args[1], VMA(2) );
 		return 0;
@@ -494,8 +511,10 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 
 	case BOTLIB_AAS_POINT_AREA_NUM:
 		return botlib_export->aas.AAS_PointAreaNum( VMA(1) );
+#ifndef ELITEFORCE
 	case BOTLIB_AAS_POINT_REACHABILITY_AREA_INDEX:
 		return botlib_export->aas.AAS_PointReachabilityAreaIndex( VMA(1) );
+#endif
 	case BOTLIB_AAS_TRACE_AREAS:
 		return botlib_export->aas.AAS_TraceAreas( VMA(1), VMA(2), VMA(3), VMA(4), args[5] );
 
@@ -517,10 +536,12 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 
 	case BOTLIB_AAS_AREA_TRAVEL_TIME_TO_GOAL_AREA:
 		return botlib_export->aas.AAS_AreaTravelTimeToGoalArea( args[1], VMA(2), args[3], args[4] );
+#ifndef ELITEFORCE
 	case BOTLIB_AAS_ENABLE_ROUTING_AREA:
 		return botlib_export->aas.AAS_EnableRoutingArea( args[1], args[2] );
 	case BOTLIB_AAS_PREDICT_ROUTE:
 		return botlib_export->aas.AAS_PredictRoute( VMA(1), args[2], VMA(3), args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11] );
+#endif
 
 	case BOTLIB_AAS_SWIMMING:
 		return botlib_export->aas.AAS_Swimming( VMA(1) );
@@ -534,6 +555,80 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case BOTLIB_EA_SAY_TEAM:
 		botlib_export->ea.EA_SayTeam( args[1], VMA(2) );
 		return 0;
+#ifdef ELITEFORCE
+	// EF's 400-anchor block is reordered relative to vanilla from this point on, and
+	// drops BOTLIB_EA_ACTION entirely. Verified position-by-position against ioEF's
+	// g_public.h (block is 100% shuffled, not a simple insertion/tail-swap like the
+	// other flavors). EA_UseItem/DropItem/UseInv/DropInv have no engine implementation
+	// here yet -- PS3's botlib.h has extra function pointers for them that this PS4
+	// botlib.h lacks; left unhandled (falls to default/Com_Error) rather than faked.
+	case BOTLIB_EA_GESTURE:
+		botlib_export->ea.EA_Gesture( args[1] );
+		return 0;
+	case BOTLIB_EA_COMMAND:
+		botlib_export->ea.EA_Command( args[1], VMA(2) );
+		return 0;
+	case BOTLIB_EA_SELECT_WEAPON:
+		botlib_export->ea.EA_SelectWeapon( args[1], args[2] );
+		return 0;
+	case BOTLIB_EA_TALK:
+		botlib_export->ea.EA_Talk( args[1] );
+		return 0;
+	case BOTLIB_EA_ATTACK:
+		botlib_export->ea.EA_Attack( args[1] );
+		return 0;
+	case BOTLIB_EA_USE:
+		botlib_export->ea.EA_Use( args[1] );
+		return 0;
+	case BOTLIB_EA_RESPAWN:
+		botlib_export->ea.EA_Respawn( args[1] );
+		return 0;
+	case BOTLIB_EA_JUMP:
+		botlib_export->ea.EA_Jump( args[1] );
+		return 0;
+	case BOTLIB_EA_DELAYED_JUMP:
+		botlib_export->ea.EA_DelayedJump( args[1] );
+		return 0;
+	case BOTLIB_EA_CROUCH:
+		botlib_export->ea.EA_Crouch( args[1] );
+		return 0;
+	case BOTLIB_EA_MOVE_UP:
+		botlib_export->ea.EA_MoveUp( args[1] );
+		return 0;
+	case BOTLIB_EA_MOVE_DOWN:
+		botlib_export->ea.EA_MoveDown( args[1] );
+		return 0;
+	case BOTLIB_EA_MOVE_FORWARD:
+		botlib_export->ea.EA_MoveForward( args[1] );
+		return 0;
+	case BOTLIB_EA_MOVE_BACK:
+		botlib_export->ea.EA_MoveBack( args[1] );
+		return 0;
+	case BOTLIB_EA_MOVE_LEFT:
+		botlib_export->ea.EA_MoveLeft( args[1] );
+		return 0;
+	case BOTLIB_EA_MOVE_RIGHT:
+		botlib_export->ea.EA_MoveRight( args[1] );
+		return 0;
+	case BOTLIB_EA_MOVE:
+		botlib_export->ea.EA_Move( args[1], VMA(2), VMF(3) );
+		return 0;
+	case BOTLIB_EA_VIEW:
+		botlib_export->ea.EA_View( args[1], VMA(2) );
+		return 0;
+	case BOTLIB_EA_END_REGULAR:
+		botlib_export->ea.EA_EndRegular( args[1], VMF(2) );
+		return 0;
+	case BOTLIB_EA_GET_INPUT:
+		botlib_export->ea.EA_GetInput( args[1], VMF(2), VMA(3) );
+		return 0;
+	case BOTLIB_EA_RESET_INPUT:
+		botlib_export->ea.EA_ResetInput( args[1] );
+		return 0;
+	case BOTLIB_EA_ALT_ATTACK:
+		botlib_export->ea.EA_Attack( args[1] );
+		return 0;
+#else
 	case BOTLIB_EA_COMMAND:
 		botlib_export->ea.EA_Command( args[1], VMA(2) );
 		return 0;
@@ -603,6 +698,7 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case BOTLIB_EA_RESET_INPUT:
 		botlib_export->ea.EA_ResetInput( args[1] );
 		return 0;
+#endif
 
 	case BOTLIB_AI_LOAD_CHARACTER:
 		return botlib_export->ai.BotLoadCharacter( VMA(1), VMF(2) );
@@ -670,6 +766,10 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		botlib_export->ai.BotSetChatGender( args[1], args[2] );
 		return 0;
 	case BOTLIB_AI_SET_CHAT_NAME:
+		// TODO(ELITEFORCE): EF calls this with 2 args (no client), but
+		// botlib_export->ai.BotSetChatName is a fixed 3-arg function pointer here.
+		// PS3 made this conditional in botlib.h/be_ai_chat.c/.h; not done yet -- see
+		// step 7 status notes on the EA_UseItem-style botlib gaps.
 		botlib_export->ai.BotSetChatName( args[1], VMA(2), args[3] );
 		return 0;
 
@@ -720,9 +820,11 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return botlib_export->ai.BotGetMapLocationGoal( VMA(1), VMA(2) );
 	case BOTLIB_AI_AVOID_GOAL_TIME:
 		return FloatAsInt( botlib_export->ai.BotAvoidGoalTime( args[1], args[2] ) );
+#ifndef ELITEFORCE
 	case BOTLIB_AI_SET_AVOID_GOAL_TIME:
 		botlib_export->ai.BotSetAvoidGoalTime( args[1], args[2], VMF(3));
 		return 0;
+#endif
 	case BOTLIB_AI_INIT_LEVEL_ITEMS:
 		botlib_export->ai.BotInitLevelItems();
 		return 0;
@@ -752,9 +854,11 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case BOTLIB_AI_RESET_MOVE_STATE:
 		botlib_export->ai.BotResetMoveState( args[1] );
 		return 0;
+#ifndef ELITEFORCE
 	case BOTLIB_AI_ADD_AVOID_SPOT:
 		botlib_export->ai.BotAddAvoidSpot( args[1], VMA(2), VMF(3), args[4] );
 		return 0;
+#endif
 	case BOTLIB_AI_MOVE_TO_GOAL:
 		botlib_export->ai.BotMoveToGoal( VMA(1), args[2], VMA(3), args[4] );
 		return 0;

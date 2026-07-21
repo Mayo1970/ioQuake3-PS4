@@ -3699,6 +3699,38 @@ qhandle_t RE_RegisterShaderNoMip( const char *name ) {
 	return sh->index;
 }
 
+#ifdef ELITEFORCE
+/*
+====================
+RE_RegisterShader3D
+
+For explicitly defined shaders that need LIGHTMAP_NONE
+as lightmapIndex.
+====================
+*/
+qhandle_t RE_RegisterShader3D( const char *name ) {
+	shader_t	*sh;
+
+	if ( strlen( name ) >= MAX_QPATH ) {
+		ri.Printf( PRINT_ALL, "Shader name exceeds MAX_QPATH\n" );
+		return 0;
+	}
+
+	sh = R_FindShader( name, LIGHTMAP_NONE, qfalse );
+
+	// we want to return 0 if the shader failed to
+	// load for some reason, but R_FindShader should
+	// still keep a name allocated for it, so if
+	// something calls RE_RegisterShader again with
+	// the same name, we don't try looking for it again
+	if ( sh->defaultShader ) {
+		return 0;
+	}
+
+	return sh->index;
+}
+#endif
+
 /*
 ====================
 R_GetShaderByHandle

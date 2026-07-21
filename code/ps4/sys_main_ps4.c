@@ -230,6 +230,8 @@ static int PS4_InstallFixes(void)
 #elif defined(STANDALONETA)
 	copied += PS4_SyncDir("/app0/fixes/baseq3",      "/data/ioq3/baseq3");
 	copied += PS4_SyncDir("/app0/fixes/missionpack", "/data/ioq3/missionpack");
+#elif defined(ELITEFORCE)
+	/* No fix-pak yet for this flavor (v1). */
 #else
 	copied += PS4_SyncDir("/app0/fixes/baseq3",      "/data/ioq3/baseq3");
 #endif
@@ -250,6 +252,10 @@ static void PS4_DebugFixesCheck(void)
 #elif defined(CLASSIC)
 	Q_strncpyz(fixesDebug.srcPath, "/app0/fixes/baseq3/pak9-ps4.pk3", sizeof(fixesDebug.srcPath));
 	Q_strncpyz(fixesDebug.dstPath, "/data/ioq3/baseq3/pak9-ps4.pk3", sizeof(fixesDebug.dstPath));
+#elif defined(ELITEFORCE)
+	/* No fix-pak yet for this flavor (v1); path kept structurally consistent for a future one. */
+	Q_strncpyz(fixesDebug.srcPath, "/app0/fixes/baseEF/pak9-ps4.pk3", sizeof(fixesDebug.srcPath));
+	Q_strncpyz(fixesDebug.dstPath, "/data/ioq3/baseEF/pak9-ps4.pk3", sizeof(fixesDebug.dstPath));
 #else
 	Q_strncpyz(fixesDebug.srcPath, "/app0/fixes/baseq3/pak9-ps4.pk3", sizeof(fixesDebug.srcPath));
 	Q_strncpyz(fixesDebug.dstPath, "/data/ioq3/baseq3/pak9-ps4.pk3", sizeof(fixesDebug.dstPath));
@@ -383,6 +389,8 @@ int main(int argc, char **argv)
 		const char *cfgPath = "/data/ioq3/missionpack/q3config.cfg";
 #elif defined(STANDALONEOA)
 		const char *cfgPath = "/data/ioq3/baseoa/q3config.cfg";
+#elif defined(ELITEFORCE)
+		const char *cfgPath = "/data/ioq3/baseEF/hmconfig.cfg";
 #else
 		const char *cfgPath = "/data/ioq3/baseq3/q3config.cfg";
 #endif

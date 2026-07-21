@@ -677,7 +677,7 @@ void SV_DropClient( client_t *drop, const char *reason ) {
 	VM_Call( gvm, GAME_CLIENT_DISCONNECT, drop - svs.clients );
 
 	// add the disconnect command
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(drop->compat)
 		SV_SendServerCommand( drop, "disconnect %s", reason);
 	else
@@ -739,19 +739,19 @@ static void SV_SendClientGameState( client_t *client ) {
 	// gamestate message was not just sent, forcing a retransmit
 	client->gamestateMessageNum = client->netchan.outgoingSequence;
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(client->compat)
 		MSG_InitOOB(&msg, msgBuffer, sizeof( msgBuffer ));
 	else
 #endif
 	MSG_Init( &msg, msgBuffer, sizeof( msgBuffer ) );
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	msg.compat = client->compat;
 #endif
 
 	// NOTE, MRE: all server->client messages now acknowledge
 	// let the client know which reliable clientCommands we have received
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(!msg.compat)
 #endif
 	MSG_WriteLong( &msg, client->lastClientCommand );
@@ -793,14 +793,14 @@ static void SV_SendClientGameState( client_t *client ) {
 		MSG_WriteDeltaEntity( &msg, &nullstate, base, qtrue );
 	}
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(msg.compat)
 		MSG_WriteByte( &msg, 0 );
 	else
 #endif
 	MSG_WriteByte( &msg, svc_EOF );
 
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 	if(!msg.compat)
 #endif
 	MSG_WriteLong( &msg, client - svs.clients);
@@ -1806,12 +1806,21 @@ static void SV_UserMove( client_t *cl, msg_t *msg, qboolean delta ) {
 	oldcmd = &nullcmd;
 	for ( i = 0 ; i < cmdCount ; i++ ) {
 		cmd = &cmds[i];
+#ifdef ELITEFORCE
+		// Mirrors cl_input.c's CL_WritePacket: EF clients always send usercmds
+		// via the plain delta writer, never the keyed-hash format below (a
+		// modern ioquake3 anti-cheat addition EF's protocol predates). Not
+		// gated on cl->compat. Verified against ioEF's own sv_client.c and
+		// the PS3 EF port.
+		MSG_ReadDeltaUsercmd( msg, oldcmd, cmd );
+#else
 #ifdef CLASSIC
 		if(cl->compat)
 			MSG_ReadDeltaUsercmd( msg, oldcmd, cmd );
 		else
 #endif
 		MSG_ReadDeltaUsercmdKey( msg, key, oldcmd, cmd );
+#endif
 		oldcmd = cmd;
 	}
 

@@ -42,7 +42,11 @@ void PS4_ApplyDefaultBindings(void)
     PS4_SetDefaultBind(K_JOY7, "JOY7", "+zoom");        /* L2       = zoom        */
     PS4_SetDefaultBind(K_JOY8, "JOY8", "+attack");      /* R2       = fire        */
     PS4_SetDefaultBind(K_JOY9, "JOY9", "+speed");       /* L3       = walk toggle */
+#ifdef ELITEFORCE
+    PS4_SetDefaultBind(K_JOY11,"JOY11", "+info");       /* Touchpad = scoreboard  */
+#else
     PS4_SetDefaultBind(K_JOY11,"JOY11", "+scores");     /* Touchpad = scoreboard  */
+#endif
     PS4_SetDefaultBind(K_ESCAPE,"ESCAPE", "togglemenu");/* Options  = toggle menu */
 
     /* Left stick cosmetic bindings (display-only, axis drives movement). */

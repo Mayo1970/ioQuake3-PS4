@@ -93,10 +93,12 @@ int		MSG_LookaheadByte (msg_t *msg);
 
 void MSG_WriteDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *to );
 void MSG_ReadDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *to );
-#ifdef CLASSIC
+#if defined(CLASSIC) || defined(ELITEFORCE)
 void MSG_WriteDeltaUsercmd( msg_t *msg, usercmd_t *from, usercmd_t *to );
 void MSG_ReadDeltaUsercmd( msg_t *msg, usercmd_t *from, usercmd_t *to );
+#endif
 
+#ifdef CLASSIC
 // retail (protocol 43) <-> modern entity_event_t translation, see msg.c
 int		Classic_EventToModern( int event );
 int		Classic_EventToRetail( int event );
@@ -263,6 +265,8 @@ PROTOCOL
 
 #ifdef CLASSIC
 #define	PROTOCOL_VERSION	43
+#elif defined(ELITEFORCE)
+#define	PROTOCOL_VERSION	26
 #else
 #define	PROTOCOL_VERSION	71
 // 1.31 - 67
@@ -273,11 +277,19 @@ PROTOCOL
 extern int demo_protocols[];
 
 #if !defined UPDATE_SERVER_NAME && !defined STANDALONE
-#define	UPDATE_SERVER_NAME	"update.quake3arena.com"
+	#ifdef ELITEFORCE
+		#define	UPDATE_SERVER_NAME	"motd.stef1.ravensoft.com"
+	#else
+		#define	UPDATE_SERVER_NAME	"update.quake3arena.com"
+	#endif
 #endif
 // override on command line, config files etc.
 #ifndef MASTER_SERVER_NAME
-#define MASTER_SERVER_NAME	"master.quake3arena.com"
+	#ifdef ELITEFORCE
+		#define MASTER_SERVER_NAME	"master.stef1.ravensoft.com"
+	#else
+		#define MASTER_SERVER_NAME	"master.quake3arena.com"
+	#endif
 #endif
 
 #ifndef STANDALONE
@@ -287,6 +299,13 @@ extern int demo_protocols[];
 	#elif defined(CLASSIC)
 		// Primary protocol IS 43; legacy version matches so clc.compat fires automatically.
 		#define PROTOCOL_LEGACY_VERSION	43
+	#elif defined(ELITEFORCE)
+		// Retail EF wire protocol (24) is what actually negotiates via
+		// com_legacyprotocol; PROTOCOL_VERSION (26) is ioEF's own project id.
+		// Do not collapse these to the same value -- that's the Classic pattern.
+		#define AUTHORIZE_SERVER_NAME	"authenticate.stef1.ravensoft.com"
+		#define PROTOCOL_LEGACY_VERSION	24
+		#define PORT_AUTHORIZE			27953
 	#endif
 	#ifndef AUTHORIZE_SERVER_NAME
 		#define	AUTHORIZE_SERVER_NAME	"authorize.quake3arena.com"
@@ -299,7 +318,11 @@ extern int demo_protocols[];
 	#endif
 #endif
 
+#ifdef ELITEFORCE
+#define	PORT_MASTER			27953
+#else
 #define	PORT_MASTER			27950
+#endif
 #define	PORT_UPDATE			27951
 #define	PORT_SERVER			27960
 #define	NUM_SERVER_PORTS	4		// broadcast scan this many ports after
@@ -624,7 +647,9 @@ issues.
 
 #define	MAX_FILE_HANDLES	64
 
-#ifdef DEDICATED
+#ifdef ELITEFORCE
+#	define Q3CONFIG_CFG "hmconfig.cfg"
+#elif defined(DEDICATED)
 #	define Q3CONFIG_CFG CONFIG_PREFIX "_server.cfg"
 #else
 #	define Q3CONFIG_CFG CONFIG_PREFIX ".cfg"

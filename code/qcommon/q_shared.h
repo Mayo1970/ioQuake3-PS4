@@ -73,6 +73,19 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
   #define PROTOCOL_HANDLER          "quake3"
   #define CONFIG_PREFIX             "q3config"
 
+#elif ELITEFORCE
+  // Star Trek Voyager: Elite Force -- standalone game, own base dir (baseEF).
+  // No CONFIG_PREFIX here: qcommon.h special-cases Q3CONFIG_CFG to "hmconfig.cfg"
+  // for ELITEFORCE directly, matching upstream ioEF (no client/server split).
+  #define PRODUCT_NAME              "ioST:V HM"
+  #define BASEGAME                  "baseEF"
+  #define CLIENT_WINDOW_TITLE       "iostvoyHM"
+  #define CLIENT_WINDOW_MIN_TITLE   "iostvoyHM"
+  #define HOMEPATH_NAME_UNIX_LEGACY ".stvef"
+  #define HOMEPATH_NAME             "STVEF"
+  #define GAMENAME_FOR_MASTER       "EliteForce"
+  #define LEGACY_PROTOCOL
+
 #elif STANDALONE
   #define PRODUCT_NAME				"iofoo3"
   #define BASEGAME					"foobar"
@@ -102,7 +115,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #endif
 
 // Heartbeat for dpmaster protocol. You shouldn't change this unless you know what you're doing
-#define HEARTBEAT_FOR_MASTER		"DarkPlaces"
+#ifdef ELITEFORCE
+  #define HEARTBEAT_FOR_MASTER		"STEF1"
+#else
+  #define HEARTBEAT_FOR_MASTER		"DarkPlaces"
+#endif
 
 // When com_gamename is LEGACY_MASTER_GAMENAME, use quake3 master protocol.
 // You shouldn't change this unless you know what you're doing
@@ -1168,7 +1185,11 @@ typedef struct {
 #define	MAX_POWERUPS			16
 #define	MAX_WEAPONS				16		
 
+#ifdef ELITEFORCE
+#define MAX_PS_EVENTS			4
+#else
 #define	MAX_PS_EVENTS			2
+#endif
 
 #define PS_PMOVEFRAMECOUNTBITS	6
 
@@ -1192,6 +1213,11 @@ typedef struct playerState_s {
 	vec3_t		origin;
 	vec3_t		velocity;
 	int			weaponTime;
+#ifdef ELITEFORCE
+	int			rechargeTime;	// for the phaser
+	short		useTime;		// use debounce
+	int			introTime;		// for the holodoor
+#endif
 	int			gravity;
 	int			speed;
 	int			delta_angles[3];	// add to command angles to get view direction
@@ -1210,7 +1236,9 @@ typedef struct playerState_s {
 								// when at rest, the value will remain unchanged
 								// used to twist the legs during strafing
 
+#ifndef ELITEFORCE
 	vec3_t		grapplePoint;	// location of grapple to pull towards if PMF_GRAPPLE_PULL
+#endif
 
 	int			eFlags;			// copied to entityState_t->eFlags
 
@@ -1234,20 +1262,27 @@ typedef struct playerState_s {
 	int			damageYaw;
 	int			damagePitch;
 	int			damageCount;
+#ifdef ELITEFORCE
+	int			damageShieldCount;
+#endif
 
 	int			stats[MAX_STATS];
 	int			persistant[MAX_PERSISTANT];	// stats that aren't cleared on death
 	int			powerups[MAX_POWERUPS];	// level.time that the powerup runs out
 	int			ammo[MAX_WEAPONS];
 
+#ifndef ELITEFORCE
 	int			generic1;
 	int			loopSound;
 	int			jumppad_ent;	// jumppad entity hit this frame
+#endif
 
 	// not communicated over the net at all
 	int			ping;			// server to game info for scoreboard
+#ifndef ELITEFORCE
 	int			pmove_framecount;
 	int			jumppad_frame;
+#endif
 	int			entityEventSequence;
 } playerState_t;
 
@@ -1282,13 +1317,23 @@ typedef struct playerState_s {
 										// then BUTTON_WALKING should be set
 
 // usercmd_t is sent to the server each client frame
+#ifdef ELITEFORCE
+typedef struct usercmd_s {
+	int				serverTime;
+	byte			buttons;
+	byte			weapon;
+	int				angles[3];
+	signed char	forwardmove, rightmove, upmove;
+} usercmd_t;
+#else
 typedef struct usercmd_s {
 	int				serverTime;
 	int				angles[3];
 	int 			buttons;
-	byte			weapon;           // weapon 
+	byte			weapon;           // weapon
 	signed char	forwardmove, rightmove, upmove;
 } usercmd_t;
+#endif
 
 //===================================================================
 
@@ -1360,7 +1405,9 @@ typedef struct entityState_s {
 	int		legsAnim;		// mask off ANIM_TOGGLEBIT
 	int		torsoAnim;		// mask off ANIM_TOGGLEBIT
 
+#ifndef ELITEFORCE
 	int		generic1;
+#endif
 } entityState_t;
 
 typedef enum {

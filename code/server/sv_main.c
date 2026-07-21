@@ -789,7 +789,12 @@ static void SV_ConnectionlessPacket( netadr_t from, msg_t *msg ) {
 	MSG_BeginReadingOOB( msg );
 	MSG_ReadLong( msg );		// skip the -1 marker
 
-#ifndef CLASSIC
+#if !defined(CLASSIC) && !defined(ELITEFORCE)
+	// CLASSIC and EF clients both send "connect" as plain text (NET_OutOfBandPrint,
+	// never the Huffman-compressed NET_OutOfBandData vanilla uses) -- decompressing
+	// it here would mangle the info string before SV_DirectConnect ever sees it,
+	// silently dropping every connect attempt (including the local/loopback one
+	// single player relies on). Verified against ioEF's own sv_main.c.
 	if (!Q_strncmp("connect", (char *) &msg->data[4], 7)) {
 		Huff_Decompress(msg, 12);
 	}

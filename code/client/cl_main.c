@@ -1904,6 +1904,13 @@ void CL_SendPureChecksums( void ) {
 	if(clc.compat)
 		Com_sprintf(cMsg, sizeof(cMsg), "cl_paks %s", FS_ReferencedPakPureChecksums(qtrue));
 	else
+#elif defined(ELITEFORCE)
+	// EF always uses "cp" (never "cl_paks"), but compat mode drops the serverId arg
+	// -- matches SV_VerifyPaks_f's EF branch expecting 5 args instead of 6. Verified
+	// against ioEF's source.
+	if(clc.compat)
+		Com_sprintf(cMsg, sizeof(cMsg), "cp %s", FS_ReferencedPakPureChecksums(qtrue));
+	else
 #endif
 	Com_sprintf(cMsg, sizeof(cMsg), "cp %d %s", cl.serverId, FS_ReferencedPakPureChecksums(qfalse));
 
@@ -2482,8 +2489,17 @@ void CL_CheckForResend( void ) {
 		if(clc.compat)
 			NET_OutOfBandPrint( NS_CLIENT, clc.serverAddress, "%s", data );
 		else
-#endif
 		NET_OutOfBandData( NS_CLIENT, clc.serverAddress, (byte *) data, strlen ( data ) );
+#elif defined(ELITEFORCE)
+		// EF's real connect wire format is plain text, never the Huffman-
+		// compressed NET_OutOfBandData vanilla ioquake3 uses -- a real EF
+		// server can't decompress it, so Info_ValueForKey(userinfo,"protocol")
+		// on their end finds nothing and rejects with "yours is 0". Verified
+		// against the PS3 EF port.
+		NET_OutOfBandPrint( NS_CLIENT, clc.serverAddress, "%s", data );
+#else
+		NET_OutOfBandData( NS_CLIENT, clc.serverAddress, (byte *) data, strlen ( data ) );
+#endif
 		// the most current userinfo has been sent, so watch for any
 		// newer changes to userinfo variables
 		cvar_modifiedFlags &= ~CVAR_USERINFO;
@@ -2561,7 +2577,10 @@ void CL_ServersResponsePacket( const netadr_t* from, msg_t *msg, qboolean extend
 	int				numservers;
 	byte*			buffptr;
 	byte*			buffend;
-	
+#ifdef ELITEFORCE
+	char strbyte[3] = "FF";
+#endif
+
 	Com_Printf("CL_ServersResponsePacket from %s\n", NET_AdrToStringwPort(*from));
 
 	if (cls.numglobalservers == -1) {
@@ -2590,12 +2609,30 @@ void CL_ServersResponsePacket( const netadr_t* from, msg_t *msg, qboolean extend
 		if (*buffptr == '\\')
 		{
 			buffptr++;
+#ifdef ELITEFORCE
+			if (buffend - buffptr < sizeof(addresses[numservers].ip) * 2 + sizeof(addresses[numservers].port) * 2 + 1)
+				break;
 
+			// EliteForce uses a slightly different format with bytes encoded
+			// in hex values.
+			for(i = 0; i < 6; i++)
+			{
+				strbyte[0] = toupper(*buffptr++);
+				strbyte[1] = toupper(*buffptr++);
+
+				if(i < 4)
+					addresses[numservers].ip[i] = strtoul(strbyte, NULL, 16);
+				else
+					((unsigned char *) &addresses[numservers].port)[i - 4] =
+						strtoul(strbyte, NULL, 16);
+			}
+#else
 			if (buffend - buffptr < sizeof(addresses[numservers].ip) + sizeof(addresses[numservers].port) + 1)
 				break;
 
 			for(i = 0; i < sizeof(addresses[numservers].ip); i++)
 				addresses[numservers].ip[i] = *buffptr++;
+#endif
 
 			addresses[numservers].type = NA_IP;
 		}
@@ -2606,21 +2643,29 @@ void CL_ServersResponsePacket( const netadr_t* from, msg_t *msg, qboolean extend
 
 			if (buffend - buffptr < sizeof(addresses[numservers].ip6) + sizeof(addresses[numservers].port) + 1)
 				break;
-			
+
 			for(i = 0; i < sizeof(addresses[numservers].ip6); i++)
 				addresses[numservers].ip6[i] = *buffptr++;
-			
+
 			addresses[numservers].type = NA_IP6;
+#ifdef ELITEFORCE
+			// parse out port
+			addresses[numservers].port = (*buffptr++) << 8;
+			addresses[numservers].port += *buffptr++;
+			addresses[numservers].port = BigShort( addresses[numservers].port );
+#endif
 			addresses[numservers].scope_id = from->scope_id;
 		}
 		else
 			// syntax error!
 			break;
-			
+
+#ifndef ELITEFORCE
 		// parse out port
 		addresses[numservers].port = (*buffptr++) << 8;
 		addresses[numservers].port += *buffptr++;
 		addresses[numservers].port = BigShort( addresses[numservers].port );
+#endif
 
 		// syntax check
 		if (*buffptr != '\\' && *buffptr != '/')
@@ -2899,6 +2944,15 @@ void CL_PacketEvent( netadr_t from, msg_t *msg ) {
 	int		headerBytes;
 
 	clc.lastPacketTime = cls.realtime;
+#ifdef ELITEFORCE
+	// msg_t doesn't inherit clc.compat on its own -- every downstream compat
+	// check (Netchan_Process's unscramble, CL_ParseServerMessage's EOF
+	// sentinel, every MSG_Read*/Write* compat branch) reads msg->compat
+	// directly, so it must be stamped here on every incoming packet or it's
+	// whatever the buffer happened to default to, not the real negotiated
+	// state. Verified against ioEF's own CL_PacketEvent.
+	msg->compat = clc.compat;
+#endif
 
 	if ( msg->cursize >= 4 && *(int *)msg->data == -1 ) {
 		CL_ConnectionlessPacket( from, msg );
@@ -3242,7 +3296,15 @@ void CL_InitRenderer( void ) {
 	re.BeginRegistration( &cls.glconfig );
 
 	// load character sets
+#ifdef ELITEFORCE
+	// EF's console/notify charset is its own asset, not vanilla's "gfx/2d/bigchars"
+	// (which doesn't exist in baseEF and silently falls back to the default/missing
+	// shader, showing as a blank square per glyph). Verified against ioEF's own
+	// cl_main.c.
+	cls.charSetShader = re.RegisterShaderNoMip( "gfx/2d/charsgrid_med" );
+#else
 	cls.charSetShader = re.RegisterShader( "gfx/2d/bigchars" );
+#endif
 	cls.whiteShader = re.RegisterShader( "white" );
 	cls.consoleShader = re.RegisterShader( "console" );
 	g_console_field_width = cls.glconfig.vidWidth / g_smallchar_width - 2;
@@ -3963,6 +4025,23 @@ void CL_ServerInfoPacket( netadr_t from, msg_t *msg ) {
 	char	*gamename;
 	qboolean gameMismatch;
 
+#ifdef ELITEFORCE
+	// EliteForce doesn't send a \n after infoResponse -- it wraps the info
+	// string in literal double-quotes instead. Strip the quotes and reposition
+	// the read cursor onto the (now null-terminated) contents before the
+	// normal MSG_ReadString below, or the leading '"' corrupts every
+	// Info_ValueForKey lookup that follows. Verified against the PS3 EF port.
+	infoString = strchr((char *) msg->data, '"');
+	if(!infoString)
+		return;
+	msg->readcount = (int) ((byte *) ++infoString - msg->data);
+	msg->bit = msg->readcount << 3;
+	// find the second " character and empty it.
+	infoString = strchr(infoString, '"');
+	if(infoString)
+		*infoString = '\0';
+#endif
+
 	infoString = MSG_ReadString( msg );
 
 	// if this isn't the correct gamename, ignore it
@@ -4009,22 +4088,36 @@ void CL_ServerInfoPacket( netadr_t from, msg_t *msg ) {
 
 			// tack on the net type
 			// NOTE: make sure these types are in sync with the netnames strings in the UI
+#ifdef ELITEFORCE
+			{
+			char *str = "";
+#endif
 			switch (from.type)
 			{
 				case NA_BROADCAST:
 				case NA_IP:
 					type = 1;
+#ifdef ELITEFORCE
+					str = "udp";
+#endif
 					break;
 				case NA_IP6:
 					type = 2;
+#ifdef ELITEFORCE
+					str = "udp6";
+#endif
 					break;
 				default:
 					type = 0;
 					break;
 			}
+#ifdef ELITEFORCE
+			Info_SetValueForKey( cl_pinglist[i].info, "nettype", str );
+			}
+#else
 			Info_SetValueForKey( cl_pinglist[i].info, "nettype", va("%d", type) );
+#endif
 			CL_SetServerInfoByAddress(from, infoString, cl_pinglist[i].time);
-
 			return;
 		}
 	}
@@ -4383,8 +4476,16 @@ void CL_GlobalServers_f( void ) {
 		Com_sprintf(command, sizeof(command), "getservers %s",
 			Cmd_Argv(2));
 	else
+#ifdef ELITEFORCE
+		// ravensoft's EF master speaks the old pre-dpmaster protocol: no
+		// gamename token. Sending "getservers EliteForce <proto>" gets
+		// silently ignored. Verified against ioEF's own cl_main.c.
+		Com_sprintf(command, sizeof(command), "getservers %s",
+			Cmd_Argv(2));
+#else
 		Com_sprintf(command, sizeof(command), "getservers %s %s",
 			com_gamename->string, Cmd_Argv(2));
+#endif
 
 	for (i=3; i < count; i++)
 	{

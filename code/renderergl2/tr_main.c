@@ -1363,6 +1363,9 @@ See if a sprite is inside a fog volume
 int R_SpriteFogNum( trRefEntity_t *ent ) {
 	int				i, j;
 	fog_t			*fog;
+#ifdef ELITEFORCE
+	float radius;
+#endif
 
 	if ( tr.refdef.rdflags & RDF_NOWORLDMODEL ) {
 		return 0;
@@ -1372,15 +1375,28 @@ int R_SpriteFogNum( trRefEntity_t *ent ) {
 		return 0;
 	}
 
+#ifdef ELITEFORCE
+	radius = ent->e.data.sprite.radius;
+#endif
+
 	for ( i = 1 ; i < tr.world->numfogs ; i++ ) {
 		fog = &tr.world->fogs[i];
 		for ( j = 0 ; j < 3 ; j++ ) {
+#ifdef ELITEFORCE
+			if ( ent->e.origin[j] - radius >= fog->bounds[1][j] ) {
+				break;
+			}
+			if ( ent->e.origin[j] + radius <= fog->bounds[0][j] ) {
+				break;
+			}
+#else
 			if ( ent->e.origin[j] - ent->e.radius >= fog->bounds[1][j] ) {
 				break;
 			}
 			if ( ent->e.origin[j] + ent->e.radius <= fog->bounds[0][j] ) {
 				break;
 			}
+#endif
 		}
 		if ( j == 3 ) {
 			return i;
@@ -1573,6 +1589,21 @@ static void R_AddEntitySurface (int entityNum)
 	switch ( ent->e.reType ) {
 	case RT_PORTALSURFACE:
 		break;		// don't draw anything
+#ifdef ELITEFORCE
+	// EF's own primitives (Trek beams/lines/bezier/cylinder/electricity effects)
+	// are drawn procedurally same as RT_SPRITE/RT_BEAM below -- verified against
+	// ioEF's own tr_main.c. Missing these fell through to the "Bad reType" error
+	// and dropped the client to the main menu on the very first frame one of
+	// these appeared (weapon fire effects, muzzle sprites, etc).
+	case RT_ORIENTEDSPRITE:
+	case RT_ALPHAVERTPOLY:
+	case RT_LINE:
+	case RT_ORIENTEDLINE:
+	case RT_LINE2:
+	case RT_BEZIER:
+	case RT_CYLINDER:
+	case RT_ELECTRICITY:
+#endif
 	case RT_SPRITE:
 	case RT_BEAM:
 	case RT_LIGHTNING:

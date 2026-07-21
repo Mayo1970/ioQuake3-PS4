@@ -7,8 +7,7 @@
 #   make oa         -- OpenArena build
 #   make classic    -- Quake 3 Classic build (legacy protocol 43 for Dreamcast)
 #   make ef         -- Star Trek Voyager: Elite Force build
-#   make all-flavors-- Build all four (Q3, TA, OA, Classic) release packages
-#                      (EF not included yet -- not functional until the port lands)
+#   make all-flavors-- Build all five (Q3, TA, OA, Classic, EF) release packages
 #   make release    -- Explicit release build
 #   make debug      -- Debug build
 # ============================================================================
@@ -119,6 +118,8 @@ all-flavors:
 	$(MAKE) oa
 	@echo "=== Building Quake 3 Classic ==="
 	$(MAKE) classic
+	@echo "=== Building Elite Force ==="
+	$(MAKE) ef
 	@echo "=== All builds complete ==="
 	@echo "Outputs:"
 	@ls -1 IV0000-QUAK03000_00-IOQ3PS4PORT00000.pkg 2>/dev/null || true

@@ -2945,12 +2945,8 @@ void CL_PacketEvent( netadr_t from, msg_t *msg ) {
 
 	clc.lastPacketTime = cls.realtime;
 #ifdef ELITEFORCE
-	// msg_t doesn't inherit clc.compat on its own -- every downstream compat
-	// check (Netchan_Process's unscramble, CL_ParseServerMessage's EOF
-	// sentinel, every MSG_Read*/Write* compat branch) reads msg->compat
-	// directly, so it must be stamped here on every incoming packet or it's
-	// whatever the buffer happened to default to, not the real negotiated
-	// state. Verified against ioEF's own CL_PacketEvent.
+	// msg_t doesn't inherit clc.compat on its own; every downstream compat check
+	// reads msg->compat directly, so stamp it here on every incoming packet.
 	msg->compat = clc.compat;
 #endif
 
@@ -3297,10 +3293,8 @@ void CL_InitRenderer( void ) {
 
 	// load character sets
 #ifdef ELITEFORCE
-	// EF's console/notify charset is its own asset, not vanilla's "gfx/2d/bigchars"
-	// (which doesn't exist in baseEF and silently falls back to the default/missing
-	// shader, showing as a blank square per glyph). Verified against ioEF's own
-	// cl_main.c.
+	// EF's console/notify charset is its own asset; vanilla's "gfx/2d/bigchars"
+	// doesn't exist in baseEF and falls back to a blank square per glyph.
 	cls.charSetShader = re.RegisterShaderNoMip( "gfx/2d/charsgrid_med" );
 #else
 	cls.charSetShader = re.RegisterShader( "gfx/2d/bigchars" );
@@ -4026,11 +4020,8 @@ void CL_ServerInfoPacket( netadr_t from, msg_t *msg ) {
 	qboolean gameMismatch;
 
 #ifdef ELITEFORCE
-	// EliteForce doesn't send a \n after infoResponse -- it wraps the info
-	// string in literal double-quotes instead. Strip the quotes and reposition
-	// the read cursor onto the (now null-terminated) contents before the
-	// normal MSG_ReadString below, or the leading '"' corrupts every
-	// Info_ValueForKey lookup that follows. Verified against the PS3 EF port.
+	// EliteForce wraps infoResponse in literal double-quotes instead of a \n.
+	// Strip them and reposition the cursor before the normal MSG_ReadString below.
 	infoString = strchr((char *) msg->data, '"');
 	if(!infoString)
 		return;
@@ -4477,9 +4468,7 @@ void CL_GlobalServers_f( void ) {
 			Cmd_Argv(2));
 	else
 #ifdef ELITEFORCE
-		// ravensoft's EF master speaks the old pre-dpmaster protocol: no
-		// gamename token. Sending "getservers EliteForce <proto>" gets
-		// silently ignored. Verified against ioEF's own cl_main.c.
+		// ravensoft's EF master speaks the old pre-dpmaster protocol: no gamename token.
 		Com_sprintf(command, sizeof(command), "getservers %s",
 			Cmd_Argv(2));
 #else

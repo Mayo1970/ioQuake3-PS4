@@ -376,7 +376,7 @@ Wii/PS3 ports.
 
 `make ef` targets Star Trek Voyager: Elite Force, using retail QVMs as-is (no fix-pak, no QVM patch in
 v1). All EF logic is behind `#ifdef ELITEFORCE` and must not affect Q3/TA/OA/Classic builds.
-**Hardware-verified for LAN/Internet discovery, hosting, connecting, and gameplay movement; not yet in
+**Hardware-verified for LAN/Internet discovery, hosting, connecting, and gameplay movement; included in
 `all-flavors`.** Reference sources used to verify the invariants below: the PS3 EF port (same lineage,
 further along) and a plain `ioef`/`ioef-cmod` PC source tree — when in doubt, diff against those rather
 than re-deriving from vanilla.

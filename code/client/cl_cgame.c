@@ -552,8 +552,7 @@ intptr_t CL_CgameSystemCalls(intptr_t* args) {
 		return S_RegisterSound(VMA(1), args[2]);
 	case CG_S_STARTBACKGROUNDTRACK:
 #ifdef ELITEFORCE
-		// EF folds "stop" into this trap (empty/NULL name) -- it has no
-		// separate CG_S_STOPBACKGROUNDTRACK import. Verified against PS3 port.
+		// EF folds "stop" into this trap (empty/NULL name); no separate CG_S_STOPBACKGROUNDTRACK import.
 		if (!VMA(1) || !*((char *) VMA(1)))
 			S_StopBackgroundTrack();
 		else

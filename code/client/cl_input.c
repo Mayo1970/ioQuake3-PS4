@@ -884,11 +884,8 @@ void CL_WritePacket( void ) {
 			j = (cl.cmdNumber - count + i + 1) & CMD_MASK;
 			cmd = &cl.cmds[j];
 #ifdef ELITEFORCE
-			// EF's real usercmd wire format is always the plain delta writer,
-			// unconditionally -- it has no concept of the keyed-hash format
-			// below (a modern ioquake3 anti-cheat addition). Not gated on
-			// clc.compat: EF never uses MSG_WriteDeltaUsercmdKey at all.
-			// Verified against ioEF's own cl_input.c and the PS3 EF port.
+			// EF always uses the plain delta writer; the keyed-hash format below
+			// is a modern ioquake3 anti-cheat addition EF has no concept of.
 			MSG_WriteDeltaUsercmd (&buf, oldcmd, cmd);
 #else
 #ifdef CLASSIC

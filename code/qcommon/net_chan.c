@@ -481,8 +481,7 @@ qboolean Netchan_Process( netchan_t *chan, msg_t *msg ) {
 		// TTimo
 		// clients were not acking fragmented messages
 #ifdef ELITEFORCE
-		// ioEF: skipped here in compat (legacy proto 24) mode -- diverges from
-		// Classic, which always bumps it. Verified against ioEF's net_chan.c.
+		// ioEF skips this in compat (legacy proto 24) mode; Classic always bumps it.
 		if(!chan->compat)
 #endif
 			chan->incomingSequence = sequence;

@@ -179,9 +179,7 @@ void SCR_DrawSmallChar( int x, int y, int ch ) {
 	fcol = col*0.0625;
 	vsize = 0.0625;
 #ifdef ELITEFORCE
-	// EF's "gfx/2d/charsgrid_med" is a 32-column x 16-row atlas, not the vanilla
-	// 16x16 "bigchars" grid -- half-width UV per glyph. Verified against ioEF's
-	// own cl_scrn.c.
+	// EF's "gfx/2d/charsgrid_med" is a 32x16 atlas, not vanilla's 16x16 grid -- half-width UV.
 	hsize = 0.03125;
 #else
 	hsize = 0.0625;

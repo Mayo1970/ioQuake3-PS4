@@ -1,20 +1,32 @@
 # ioquake3-PS4
 
-A port of [ioQuake3](https://github.com/ioquake/ioq3) to the PlayStation 4, using the [OpenOrbis](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain)
-homebrew toolchain and Piglet (Sony's built-in GLES 2.0 / EGL 1.4) for rendering.
+A port of [ioQuake3](https://github.com/ioquake/ioq3) to the PlayStation 4, using [OpenOrbis](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain)
+
+Five builds are produced from the same source tree:
+
+| Variant | TITLE_ID | Base game | 
+|---|---|---|---|
+| ioQuake3         | `QUAK03000` | `baseq3` | 
+| Team Arena       | `QUAK03001` | `baseq3` + `missionpack` | 
+| Open Arena       | `QUAK03002` | `baseoa` | 
+| Quake 3 Classic  | `QUAK03003` | `baseq3` (pak0–pak2 only) | 
+| Elite Force      | `QUAK03004` | `baseEF` | 
+
+## Status
+
+- Boots, loads maps, gameplay with bots (Q3/TA/OA/Classic), online multiplayer
+- Networking: LAN discovery, internet server browser, master server, hosting
+- DualShock 4 dual-stick analog input + rumble, touchpad aim mode, lightbar health feedback
+- On-screen keyboard support for console, chat, and menu text fields
 
 ## Prerequisites (Windows)
 
 ### 1. OpenOrbis toolchain
 
-Download and extract the [OpenOrbis PS4 toolchain](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases)
-to a directory without spaces in the path, e.g.:
-
-```
-C:\OpenOrbis\OpenOrbis-PS4-Toolchain\
-```
-
-Set the `OO_PS4_TOOLCHAIN` environment variable to that path.
+Follow [this guide](https://github.com/OpenPS4/guide-to-install-orbisdev) to
+install the OpenOrbis PS4 toolchain, then set the `OO_PS4_TOOLCHAIN`
+environment variable to wherever it was installed (path must not contain
+spaces).
 
 ### 2. LLVM 18 / Clang
 
@@ -50,7 +62,7 @@ module) is never needed. Hardware-verified booting with both
 
 ## Building
 
-Four pkg variants are produced from the same unified Makefile:
+Five pkg variants are produced from the same unified Makefile:
 
 ```bash
 make                  # ioQuake 3            (BASEGAME=baseq3,  TITLE_ID=QUAK03000)
@@ -59,7 +71,8 @@ make ta               # Quake 3: Team Arena  (BASEGAME=baseq3 + auto fs_game=mis
 make oa               # Open Arena           (BASEGAME=baseoa,  TITLE_ID=QUAK03002)
 make classic          # Quake 3 Classic      (BASEGAME=baseq3,  TITLE_ID=QUAK03003,
                       #                       protocol 43 — Dreamcast crossplay)
-make all-flavors      # Build all three release pkgs in sequence
+make ef               # Elite Force          (Star Trek Voyager: Elite Force, retail QVMs)
+make all-flavors      # Build all five release pkgs in sequence
 make debug            # Debug build of ioQuake 3 (writes /data/ioq3/ioquake3log.txt)
 make clean            # Remove all build artifacts
 ```
@@ -67,7 +80,7 @@ make clean            # Remove all build artifacts
 Each variant uses its own object directory (`build/obj/q3/release`,
 `build/obj/ta/release`, `build/obj/oa/release`, etc.), so switching builds
 never requires `make clean`. Release and debug binaries can coexist.
-`make all-flavors` builds all three packages in one pass.
+`make all-flavors` builds all five packages in one pass.
 
 **Output:** `IV0000-QUAK03000_00-IOQ3PS4PORT00000.pkg` (and `QUAK03001` /
 `QUAK03002`/ `QUAK03003` for TA / OA / CLASSIC).
@@ -119,31 +132,20 @@ To force a reinstall of updated fix files, delete the marker
 
 ## PS4 directory layout
 
-**You need the original Quake III Arena data files** (`pak0.pk3` through
-`pak8.pk3`). On Steam these are at
-`steamapps/common/Quake 3 Arena/baseq3/`
+See **[INSTALLATION.md](INSTALLATION.md)** for exactly where each variant's
+game data goes under `/data/ioq3/`. No Sony modules need to be FTP'd
+anywhere -- see [Runtime modules](#5-runtime-modules-not-required) above.
 
-```
-/data/ioq3/
-├── baseq3/
-│   ├── pak0.pk3             ← Quake III Arena retail data
-│   ├── pak1.pk3
-│   ├── ...
-│   └── pak8.pk3
-├── missionpack/             ← optional, for Team Arena (see "Mods" below)
-│   ├── pak0.pk3
-│   ├── pak1.pk3
-│   ├── pak2.pk3
-│   └── pak3.pk3
-└── ioquake3log.txt          ← written only in debug builds
-```
-No Sony modules need to be FTP'd anywhere -- see [Runtime modules](#5-runtime-modules-not-required) above.
+---
+
+## Installing on PS4
+
+See **[INSTALLATION.md](INSTALLATION.md)** for the full step-by-step, including
+where to get each build's required game files and exactly where to place them.
 
 ---
 
 ## Controls
-
-Dual-stick FPS layout.
 
 #### In-game
 
@@ -325,6 +327,7 @@ To play on Dreamcast community servers you also need `dc-mappack.pk3`, which con
 
 - **[ioQuake3](https://github.com/ioquake/ioq3)** -- the upstream engine this port is based on.
 - **[OpenOrbis PS4 Toolchain](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain)** -- LLVM-based toolchain, ELF linker, and PkgTool used to produce PS4 pkgs.
+- **[psbc](https://gitgud.io/veiledmerc/psbc)** -- Shader compilation
 - **[Lilium Arena Classic](https://github.com/clover-moe/lilium-arena-classic)** (clover-moe / clover-leaf) -- reverse-engineered Quake III Arena protocol-43 / Dreamcast compatibility layer. The CLASSIC build's pure-checksum exchange, `cl_paks` format, server-message parse fixes, and `FS_ReferencedPakPureChecksums` compat mode are derived from this work.
 
 ---

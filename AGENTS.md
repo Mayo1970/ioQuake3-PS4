@@ -52,7 +52,7 @@ Toolchain lives at `…\DEVkits\OpenOrbis-PS4-Toolchain` (note: **DEVkits**, not
 | `make ta` | QUAK03001 | baseq3 | `+set fs_game missionpack` | `-DSTANDALONETA` |
 | `make oa` | QUAK03002 | baseoa | — | `-DSTANDALONEOA` |
 | `make classic` | QUAK03003 | baseq3 | legacy proto 43 | `-DCLASSIC -DLEGACY_PROTOCOL` |
-| `make ef` | QUAK03004 | baseEF | proto 26, no fix-pak, no bots (v1) | `-DELITEFORCE` |
+| `make ef` | QUAK03004 | baseEF | proto 26, no fix-pak, bots working | `-DELITEFORCE` |
 
 `ef` is **not** in `all-flavors` — it stays a standalone target until its port work is verified on hardware.
 
@@ -447,6 +447,10 @@ source, both have bitten this port before:
   `tr_surface.c`'s `RB_SurfaceEntity` already draws all of them, but the front-end scene-gathering step
   didn't know about them and hit `default: ri.Error(ERR_DROP, "Bad reType")` the instant a Trek
   weapon-fire effect (beam/cylinder/electricity) appeared, dropping straight to the main menu.
+- **`EA_Respawn` (`code/botlib/be_ea.c`) must set `ACTION_ATTACK`, not `ACTION_RESPAWN`, under `#ifdef
+  ELITEFORCE`.** Retail EF's unmodified `qagame.qvm` bot AI only ever tests `ACTION_ATTACK` to detect a
+  respawn input — it never checks `ACTION_RESPAWN` (unlike Q3/TA/OA/Classic). Get this wrong and dead bots
+  never respawn; no error, they just stay dead. Matches ioEF's own `be_ea.c`.
 - **Protocol: `PROTOCOL_VERSION 26`, `PROTOCOL_LEGACY_VERSION 24` — the two are deliberately different**
   (unlike CLASSIC, where legacy == current). Master/auth/update hosts are `*.ravensoft.com`; heartbeat
   string is `STEF1`; master/auth port is `27953` (not the usual `27950`/`27952`).
@@ -479,6 +483,11 @@ source, both have bitten this port before:
   QVMs only; no source in this tree backs them. Bot support (EF's `be_ea.c`-equivalent action enums) is
   compile-correctness plumbing only if added — full bot behavior is out of scope for v1, as is any new
   fix-pak or QVM rebuild.
+- **MP3 codec (`USE_CODEC_MP3`)** uses `minimp3` (`code/thirdparty/minimp3/minimp3.h`, single-header,
+  public domain, no libc allocations) rather than libmad — ported from the PS3 port's identical codec
+  (`code/client/snd_codec_mp3.c`). It only calls `Z_Malloc`/`Hunk_AllocateTempMemory`/`FS_Read`/
+  `Com_Memcpy`, so it's engine-agnostic; not gated behind `#ifdef ELITEFORCE`, it applies to every flavor
+  like Vorbis does. Registered in `snd_codec.c`/`snd_codec.h` the same way as `ogg_codec`/`opus_codec`.
 
 ---
 

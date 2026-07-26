@@ -208,6 +208,7 @@ DEFINES     := -D__ORBIS__ -D__PS4__ \
                -DUSE_INTERNAL_JPEG=1 \
                -DUSE_INTERNAL_ZLIB=1 \
                -DUSE_CODEC_VORBIS=1 \
+               -DUSE_CODEC_MP3=1 \
                $(DEFINES_EXTRA) \
                -DPRODUCT_VERSION=\"1.36_ps4\"
 
@@ -232,6 +233,7 @@ CFLAGS      := $(TARGET) -fPIC -funwind-tables -fexceptions \
                -Icode/thirdparty/zlib-1.3.1 \
                -Icode/thirdparty/libogg-1.3.6/include \
                -Icode/thirdparty/libvorbis-1.3.7/include \
+               -Icode/thirdparty/minimp3 \
                -c
 
 CFLAGS      += -Wno-unused-variable -Wno-unused-function \
@@ -336,6 +338,7 @@ CLIENT_SRCS :=     code/client/cl_avi.c \
                    code/client/snd_codec.c \
                    code/client/snd_codec_wav.c \
                    code/client/snd_codec_ogg.c \
+                   code/client/snd_codec_mp3.c \
                    code/client/snd_dma.c \
                    code/client/snd_main.c \
                    code/client/snd_mem.c \

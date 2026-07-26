@@ -5,7 +5,7 @@ A port of [ioQuake3](https://github.com/ioquake/ioq3) to the PlayStation 4, usin
 Five builds are produced from the same source tree:
 
 | Variant | TITLE_ID | Base game | 
-|---|---|---|---|
+|---|---|---|
 | ioQuake3         | `QUAK03000` | `baseq3` | 
 | Team Arena       | `QUAK03001` | `baseq3` + `missionpack` | 
 | Open Arena       | `QUAK03002` | `baseoa` | 

@@ -2266,6 +2266,52 @@ static void Upload32(byte *data, int x, int y, int width, int height, GLenum pic
 }
 
 
+#if defined(__ORBIS__) || defined(__PS4__)
+// Maps unsized GLES format/type back to a sized enum for glTexStorage2DEXT.
+// Returns 0 for anything unsupported (compressed DDS formats) -> caller falls back.
+static GLenum R_SizedInternalFormat( GLenum internalFormat, GLenum dataType )
+{
+	switch ( internalFormat )
+	{
+		case GL_RGBA:
+			switch ( dataType )
+			{
+				case GL_UNSIGNED_BYTE:				return GL_RGBA8_OES;
+				case GL_UNSIGNED_SHORT_4_4_4_4:		return GL_RGBA4;
+				case GL_UNSIGNED_SHORT_5_5_5_1:		return GL_RGB5_A1;
+				default:							return 0;
+			}
+		case GL_RGB:
+			switch ( dataType )
+			{
+				case GL_UNSIGNED_BYTE:				return GL_RGB8_OES;
+				case GL_UNSIGNED_SHORT_5_6_5:		return GL_RGB565;
+				default:							return 0;
+			}
+		case GL_LUMINANCE:						return GL_LUMINANCE8_EXT;
+		case GL_LUMINANCE_ALPHA:				return GL_LUMINANCE8_ALPHA8_EXT;
+		case GL_ALPHA:							return GL_ALPHA8_EXT;
+		case GL_DEPTH_COMPONENT16:				return GL_DEPTH_COMPONENT16;
+		default:								return 0;
+	}
+}
+
+// Number of mip levels glTexStorage2DEXT must allocate to match glGenerateMipmap's output.
+static int R_MipChainLevels( int width, int height )
+{
+	int levels = 1;
+
+	while ( width > 1 || height > 1 ) {
+		width = MAX( 1, width >> 1 );
+		height = MAX( 1, height >> 1 );
+		levels++;
+	}
+
+	return levels;
+}
+#endif
+
+
 /*
 ================
 R_CreateImage2
@@ -2284,7 +2330,8 @@ image_t *R_CreateImage2( const char *name, byte *pic, int width, int height, GLe
 	qboolean    cubemap = !!(flags & IMGFLAG_CUBEMAP);
 	qboolean    picmip = !!(flags & IMGFLAG_PICMIP);
 	qboolean    lastMip;
-	qboolean    allocStorage = qtrue;
+	qboolean    allocStorage = qtrue;		// still needs per-level glTexImage2D
+	qboolean    storageAllocated = qtrue;	// storage exists, upload via sub-image
 	GLenum textureTarget = cubemap ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D;
 	GLenum dataFormat, dataType;
 	uint64_t profileTime;
@@ -2417,20 +2464,33 @@ image_t *R_CreateImage2( const char *name, byte *pic, int width, int height, GLe
 	image->uploadHeight = height;
 
 #ifdef __ORBIS__
-	// Piglet allocates GPU memory inside every glTexImage2D level -- measured
-	// at roughly 5 ms a call, ~40 ms per image, which was 78% of a q3dm1 load
-	// while the pixel upload itself cost 1 ms across the whole map. Declaring
-	// the mip chain up front is pure waste on the common path: glGenerateMipmap
-	// produces levels 1..n itself, so only level 0 has to exist and it may as
-	// well carry its pixels. RawImage_UploadTexture declares it instead.
-	//
-	// Excluded: images created empty (FBO attachments, lightmap atlases filled
-	// later by R_UpdateSubImage), cubemaps, and the compressed/DDS and RGTC
-	// paths, which all upload through sub-image calls into existing storage.
-	if ( r_fastTextureUpload->integer && pic && !cubemap && rgba8 && numMips < 2
-		&& internalFormat != GL_COMPRESSED_RG_RGTC2 )
+	// Piglet charges a GPU alloc per glTexImage2D level (~5ms/call). glTexStorage2DEXT
+	// declares the whole mip chain at once instead. Skipped for empty/mutable/multi-mip
+	// images since storage becomes immutable once declared.
+	if ( r_fastTextureUpload->integer && glRefConfig.textureStorage && pic && numMips < 2
+		&& !( flags & IMGFLAG_MUTABLE ) )
+	{
+		GLenum sizedFormat = R_SizedInternalFormat( internalFormat, dataType );
+
+		if ( sizedFormat )
+		{
+			PROFILE_START(profileTime);
+			GLDSA_TextureStorage2DEXT( image->texnum, textureTarget,
+				mipmap ? R_MipChainLevels( width, height ) : 1,
+				sizedFormat, width, height );
+			PROFILE_STOP(profileTime, storage);
+
+			allocStorage = qfalse;	// storage is now immutable, glTexImage2D would error
+		}
+	}
+
+	// Fallback for no texture storage / unsizable formats: skip pre-declaring the
+	// chain, let RawImage_UploadTexture declare level 0 with its pixels directly.
+	if ( allocStorage && r_fastTextureUpload->integer && pic && !cubemap && rgba8
+		&& numMips < 2 && internalFormat != GL_COMPRESSED_RG_RGTC2 )
 	{
 		allocStorage = qfalse;
+		storageAllocated = qfalse;
 	}
 #endif
 
@@ -2466,7 +2526,7 @@ image_t *R_CreateImage2( const char *name, byte *pic, int width, int height, GLe
 
 	// Upload data.
 	if (pic)
-		Upload32(pic, 0, 0, width, height, picFormat, dataFormat, dataType, numMips, image, scaled, allocStorage);
+		Upload32(pic, 0, 0, width, height, picFormat, dataFormat, dataType, numMips, image, scaled, storageAllocated);
 
 	if (resampledBuffer != NULL)
 		ri.Hunk_FreeTempMemory(resampledBuffer);
@@ -3092,7 +3152,8 @@ void R_CreateBuiltinImages( void ) {
 
 	for(x=0;x<32;x++) {
 		// scratchimage is usually used for cinematic drawing
-		tr.scratchImage[x] = R_CreateImage("*scratch", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, IMGTYPE_COLORALPHA, IMGFLAG_PICMIP | IMGFLAG_CLAMPTOEDGE, 0);
+		// IMGFLAG_MUTABLE: RE_UploadCinematic re-specifies this at the movie's real size
+		tr.scratchImage[x] = R_CreateImage("*scratch", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, IMGTYPE_COLORALPHA, IMGFLAG_PICMIP | IMGFLAG_CLAMPTOEDGE | IMGFLAG_MUTABLE, 0);
 	}
 
 	R_CreateDlightImage();

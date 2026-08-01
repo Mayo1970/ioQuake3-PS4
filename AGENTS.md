@@ -212,19 +212,46 @@ Working configuration (after several wrong turns — do not revert):
   `glBlitFramebuffer` is GLES3-only → shader-based `FBO_Blit`. Shadow/sunshadow FBOs drop their color
   renderbuffer; `R_CheckFBO` is guarded off with `#ifndef __ORBIS__` (objects still created — `tr_main.c`
   dereferences them without null checks).
-- **`glTexImage2D` allocates GPU memory — never pre-declare a mip chain.** Every `glTexImage2D` level
-  costs Piglet a real allocation, ~5 ms per call and worse as the level grows. Stock `R_CreateImage2`
-  declares all n levels with `NULL` before uploading, which measured **6.1 s of a 7.7 s q3dm1 world load
-  (79%)** while the pixel upload itself was 1 ms for the entire map. `r_fastTextureUpload` (default `1`,
-  `#ifdef __ORBIS__`) skips that loop on the common path — `RawImage_UploadTexture` declares level 0 with
-  its pixels in one `glTexImage2D`, and `glGenerateMipmap` produces levels 1..n. Pre-allocation is kept
-  for images created empty (FBO attachments, lightmap atlases written later by `R_UpdateSubImage`),
-  cubemaps, and the compressed/DDS and RGTC paths, which all sub-image into existing storage.
-  Hardware-measured on q3dm1: `surfaces` 7970 → 3112 ms, `CL_InitCGame` 10.91 → 5.41 s. The allocation
-  does not disappear — it moves into `glGenerateMipmap` (12 → 1313 ms) — but Piglet allocating the chain
-  itself costs ~4.7× less than the explicit per-level loop.
-  Corollary: `r_texturebits 32` is **slower than `16`** here (+44% on the same load) because the cost
-  scales with bytes allocated, not with pixels touched — `ps4_glimp.c` force-sets `16` for that reason.
+- **`glTexImage2D` allocates GPU memory — never declare a mip chain level by level.** Each call costs
+  Piglet a real allocation, ~5 ms and worse as the level grows. Stock `R_CreateImage2` declares all n
+  levels with `NULL` before uploading, which measured **6284 ms of a 7719 ms q3dm1 world load (81%)**
+  while the pixel upload itself was 1 ms for the entire map. `glTexStorage2DEXT` declares the whole chain
+  in **one** call instead, and on this driver that call is essentially free — the allocation cost is per
+  *call*, not per byte. Hardware-measured on q3dm1: `MAPLOAD: surfaces` **7965 → 1378 ms**,
+  `CL_InitCGame` **10.40 → 2.33 s**, `gl storage` 6284 → 4 ms, `gl genmipmap` 6 → 3 ms. Every GL call in
+  a world load now totals ~10 ms; what remains is CPU (`scale`, `decode`).
+- **`r_picmip` defaults to `0` on PS4** (upstream is `1`), set in `tr_init.c` under `#ifdef __ORBIS__`.
+  Once texture storage made the GL side of a load nearly free, the CPU downscale `picmip` forces in
+  `RawImage_ScaleToPower2` became the largest single remaining cost — 604 ms of a 1130 ms q3dm1 world
+  load. `0` skips that pass entirely, so full-resolution textures both load faster and look better.
+  Hardware-verified with no regression. Costs ~4× texture memory, which is comfortable against Piglet's
+  512 MB video budget for stock content; worth re-checking if a texture-heavy mod ever appears.
+  - `GL_EXT_texture_storage` is advertised by Piglet, but the entry point is resolved with
+    `eglGetProcAddress` rather than linked, and `GLimp_InitExtraExtensions` then **probes it on a
+    throwaway 8×8 texture and checks `glGetError` before enabling it**. Every texture in the game goes
+    through this path and `r_ignoreGLErrors` defaults to `1`, so a broken extension would surface as
+    black textures rather than a message. State is reported as `texture storage:` in the `gfxinfo` block
+    (which prints on every `R_Init`, unlike the one-shot `...using` line).
+  - Needs sized formats, which the GLES conversion in `R_CreateImage2` deliberately reduces away —
+    `R_SizedInternalFormat` maps back (`GL_RGBA8_OES`, `GL_RGB565`, `GL_RGBA4`, …) and returns 0 for
+    anything unmappable.
+  - **Storage is immutable once declared.** `glTexSubImage2D` into it is fine (lightmap atlases via
+    `R_UpdateSubImage` are unaffected), but `glTexImage2D` on it fails with `GL_INVALID_OPERATION` — and
+    with `r_ignoreGLErrors 1` that failure is silent, leaving the texture stuck on its initial contents.
+    Three exclusions keep such images on the mutable path: images created empty (FBO attachments),
+    `numMips > 1` (a DDS supplies its own level count, which need not fill the chain), and anything
+    flagged **`IMGFLAG_MUTABLE`**. Set that flag on any image whose size or format is re-declared after
+    creation. It exists because `RE_UploadCinematic` (`tr_backend.c`) re-specifies `tr.scratchImage[]`
+    with `glTexImage2D` at the movie's real size — without the flag, every cinematic renders **grey**
+    while the rest of the game looks perfect.
+  - **Fallback** when storage is unavailable or the format is unmappable: `r_fastTextureUpload`
+    (default `1`) skips the per-level loop anyway and has `RawImage_UploadTexture` declare level 0 with
+    its pixels in one `glTexImage2D`, leaving `glGenerateMipmap` to produce levels 1..n. That measured
+    `surfaces` 3112 ms / `CL_InitCGame` 5.41 s — better than stock, worse than texture storage, because
+    the allocation moves into `glGenerateMipmap` (12 → 1313 ms) rather than disappearing. Setting it to
+    `0` restores the stock per-level loop, which is the A/B for all the numbers above.
+  Corollary: `r_texturebits 32` is **slower than `16`** on the stock path (+44% on the same load) because
+  that path's cost scales with bytes allocated — `ps4_glimp.c` force-sets `16` for that reason.
 - **`r_loadProfile`** (default `0`) prints per-lump `MAPLOAD:` timings plus an `IMGPROFILE` breakdown of
   image loading (filesystem probe misses / decode / scale / each individual GL call) at the end of
   `RE_LoadWorldMap` and `RE_EndRegistration`. Use it before optimising anything on the load path; µs

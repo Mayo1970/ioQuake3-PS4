@@ -141,6 +141,15 @@ GLvoid APIENTRY GLDSA_GenerateTextureMipmapEXT(GLuint texture, GLenum target)
 	qglGenerateMipmap(target);
 }
 
+#if defined(__ORBIS__) || defined(__PS4__)
+GLvoid APIENTRY GLDSA_TextureStorage2DEXT(GLuint texture, GLenum target, GLsizei levels,
+	GLenum internalformat, GLsizei width, GLsizei height)
+{
+	GL_BindMultiTexture(glDsaState.texunit, target, texture);
+	qglTexStorage2DEXT(target, levels, internalformat, width, height);
+}
+#endif
+
 void GL_BindNullProgram(void)
 {
 	qglUseProgram(0);

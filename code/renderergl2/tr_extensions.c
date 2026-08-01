@@ -32,6 +32,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_local.h"
 #include "tr_dsa.h"
 
+#if defined(__ORBIS__) || defined(__PS4__)
+PFNGLTEXSTORAGE2DEXTPROC qglTexStorage2DEXT = NULL;
+#endif
+
 void GLimp_InitExtraExtensions(void)
 {
 	char *extension;
@@ -118,6 +122,45 @@ void GLimp_InitExtraExtensions(void)
 			if (exts && strstr(exts, "GL_OES_depth_texture"))
 			{
 				ri.Printf(PRINT_ALL, "...GL_OES_depth_texture available\n");
+			}
+
+			// GL_EXT_texture_storage: allocates the whole mip chain in one call.
+			if (exts && strstr(exts, "GL_EXT_texture_storage"))
+			{
+				qglTexStorage2DEXT = (PFNGLTEXSTORAGE2DEXTPROC)eglGetProcAddress("glTexStorage2DEXT");
+
+				if (!qglTexStorage2DEXT)
+				{
+					ri.Printf(PRINT_ALL, "...GL_EXT_texture_storage advertised but glTexStorage2DEXT is not exported\n");
+				}
+				else
+				{
+					// Probe on a throwaway texture before trusting it for real uploads.
+					GLuint	probeTexture;
+					GLenum	probeError;
+
+					while (qglGetError() != GL_NO_ERROR)
+						;	// clear pending errors
+
+					qglGenTextures(1, &probeTexture);
+					qglBindTexture(GL_TEXTURE_2D, probeTexture);
+					qglTexStorage2DEXT(GL_TEXTURE_2D, 4, GL_RGBA8_OES, 8, 8);
+					probeError = qglGetError();
+					qglDeleteTextures(1, &probeTexture);
+
+					GL_BindNullTextures();	// the raw bind above bypassed tr_dsa's cache
+
+					if (probeError == GL_NO_ERROR)
+					{
+						glRefConfig.textureStorage = qtrue;
+						ri.Printf(PRINT_ALL, "...using GL_EXT_texture_storage\n");
+					}
+					else
+					{
+						qglTexStorage2DEXT = NULL;
+						ri.Printf(PRINT_ALL, "...GL_EXT_texture_storage present but glTexStorage2DEXT failed (0x%x), ignoring\n", probeError);
+					}
+				}
 			}
 		}
 

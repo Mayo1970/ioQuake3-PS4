@@ -43,6 +43,11 @@ GLvoid APIENTRY GLDSA_CompressedTextureSubImage2DEXT(GLuint texture, GLenum targ
 
 GLvoid APIENTRY GLDSA_GenerateTextureMipmapEXT(GLuint texture, GLenum target);
 
+#if defined(__ORBIS__) || defined(__PS4__)
+GLvoid APIENTRY GLDSA_TextureStorage2DEXT(GLuint texture, GLenum target, GLsizei levels,
+	GLenum internalformat, GLsizei width, GLsizei height);
+#endif
+
 void GL_BindNullProgram(void);
 int GL_UseProgram(GLuint program);
 

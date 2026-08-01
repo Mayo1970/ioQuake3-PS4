@@ -1450,7 +1450,13 @@ typedef struct {
 	qboolean readStencil;
 	qboolean shadowSamplers;
 	qboolean standardDerivatives;
+	qboolean textureStorage;
 } glRefConfig_t;
+
+#if defined(__ORBIS__) || defined(__PS4__)
+// GL_EXT_texture_storage, resolved via eglGetProcAddress; NULL if unsupported.
+extern PFNGLTEXSTORAGE2DEXTPROC qglTexStorage2DEXT;
+#endif
 
 
 typedef struct {

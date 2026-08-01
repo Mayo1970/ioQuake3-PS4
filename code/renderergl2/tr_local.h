@@ -1843,6 +1843,9 @@ extern	cvar_t	*r_greyscale;
 
 extern	cvar_t	*r_ignoreGLErrors;
 
+extern	cvar_t	*r_loadProfile;
+extern	cvar_t	*r_fastTextureUpload;
+
 extern	cvar_t	*r_overBrightBits;
 extern	cvar_t	*r_mapOverBrightBits;
 
@@ -2007,6 +2010,8 @@ void	R_ScreenShot_f( void );
 void	R_InitFogTable( void );
 float	R_FogFactor( float s, float t );
 void	R_InitImages( void );
+void	R_ImageProfileReset( void );
+void	R_ImageProfilePrint( const char *label );
 void	R_DeleteTextures( void );
 int		R_SumOfUsedImages( void );
 void	R_InitSkins( void );

@@ -169,6 +169,8 @@ cvar_t  *r_shadowCascadeZBias;
 cvar_t  *r_ignoreDstAlpha;
 
 cvar_t	*r_ignoreGLErrors;
+cvar_t	*r_loadProfile;
+cvar_t	*r_fastTextureUpload;
 cvar_t	*r_logFile;
 
 cvar_t	*r_stencilbits;
@@ -1382,6 +1384,11 @@ void R_Register( void )
 	r_zproj = ri.Cvar_Get( "r_zproj", "64", CVAR_ARCHIVE );
 	r_stereoSeparation = ri.Cvar_Get( "r_stereoSeparation", "64", CVAR_ARCHIVE );
 	r_ignoreGLErrors = ri.Cvar_Get( "r_ignoreGLErrors", "1", CVAR_ARCHIVE );
+	// breaks map/media load time down per stage -- see R_ImageProfilePrint
+	r_loadProfile = ri.Cvar_Get( "r_loadProfile", "0", CVAR_ARCHIVE );
+	// PS4 only: skip the mip chain pre-allocation in R_CreateImage2.
+	// 0 restores the stock upload path for comparison.
+	r_fastTextureUpload = ri.Cvar_Get( "r_fastTextureUpload", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_fastsky = ri.Cvar_Get( "r_fastsky", "0", CVAR_ARCHIVE );
 #ifdef ELITEFORCE
 	r_origfastsky = ri.Cvar_Get( "r_origfastsky", "0", CVAR_ARCHIVE );
@@ -1671,6 +1678,10 @@ Touch all images to make sure they are resident
 =============
 */
 void RE_EndRegistration( void ) {
+	// everything registered since RE_LoadWorldMap finished -- cgame/ui media
+	R_ImageProfilePrint( "media" );
+	R_ImageProfileReset();
+
 	R_IssuePendingRenderCommands();
 	if (!ri.Sys_LowPhysicalMemory()) {
 		RB_ShowImages();

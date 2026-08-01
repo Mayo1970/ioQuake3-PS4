@@ -212,6 +212,23 @@ Working configuration (after several wrong turns — do not revert):
   `glBlitFramebuffer` is GLES3-only → shader-based `FBO_Blit`. Shadow/sunshadow FBOs drop their color
   renderbuffer; `R_CheckFBO` is guarded off with `#ifndef __ORBIS__` (objects still created — `tr_main.c`
   dereferences them without null checks).
+- **`glTexImage2D` allocates GPU memory — never pre-declare a mip chain.** Every `glTexImage2D` level
+  costs Piglet a real allocation, ~5 ms per call and worse as the level grows. Stock `R_CreateImage2`
+  declares all n levels with `NULL` before uploading, which measured **6.1 s of a 7.7 s q3dm1 world load
+  (79%)** while the pixel upload itself was 1 ms for the entire map. `r_fastTextureUpload` (default `1`,
+  `#ifdef __ORBIS__`) skips that loop on the common path — `RawImage_UploadTexture` declares level 0 with
+  its pixels in one `glTexImage2D`, and `glGenerateMipmap` produces levels 1..n. Pre-allocation is kept
+  for images created empty (FBO attachments, lightmap atlases written later by `R_UpdateSubImage`),
+  cubemaps, and the compressed/DDS and RGTC paths, which all sub-image into existing storage.
+  Hardware-measured on q3dm1: `surfaces` 7970 → 3112 ms, `CL_InitCGame` 10.91 → 5.41 s. The allocation
+  does not disappear — it moves into `glGenerateMipmap` (12 → 1313 ms) — but Piglet allocating the chain
+  itself costs ~4.7× less than the explicit per-level loop.
+  Corollary: `r_texturebits 32` is **slower than `16`** here (+44% on the same load) because the cost
+  scales with bytes allocated, not with pixels touched — `ps4_glimp.c` force-sets `16` for that reason.
+- **`r_loadProfile`** (default `0`) prints per-lump `MAPLOAD:` timings plus an `IMGPROFILE` breakdown of
+  image loading (filesystem probe misses / decode / scale / each individual GL call) at the end of
+  `RE_LoadWorldMap` and `RE_EndRegistration`. Use it before optimising anything on the load path; µs
+  timing comes from `sceKernelGetProcessTime()`.
 - **Cinematics:** `RE_UploadCinematic` on `__ORBIS__` uploads the RoQ buffer directly as `GL_RGBA`
   (Piglet has `GL_OES_rgb8_rgba8`) — no per-frame `Hunk_AllocateTempMemory` + RGBA→RGB CPU shuffle.
   Fixed OA boot cinematic + TA main-menu background RoQ stutter.

@@ -24,6 +24,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "tr_dsa.h"
 
+#ifdef __ORBIS__
+#include <orbis/libkernel.h>
+#endif
+
 static byte			 s_intensitytable[256];
 static unsigned char s_gammatable[256];
 
@@ -32,6 +36,82 @@ int		gl_filter_max = GL_LINEAR;
 
 #define FILE_HASH_SIZE		1024
 static	image_t*		hashTable[FILE_HASH_SIZE];
+
+/*
+==================================================================
+
+IMAGE LOAD PROFILING
+
+Enabled with r_loadProfile 1. Attributes the wall time spent inside
+R_FindImageFile to filesystem probing, image decode, the CPU pixel
+passes and each individual GL upload call, so a slow load can be
+blamed on a specific stage instead of guessed at.
+
+==================================================================
+*/
+typedef struct {
+	uint64_t	probeMiss;		// failed extension probes (pure filesystem)
+	uint64_t	decode;			// the loader call that succeeded
+	uint64_t	scale;			// RawImage_ScaleToPower2
+	uint64_t	lightScale;		// R_LightScaleTexture
+	uint64_t	storage;		// glTexImage2D( NULL ) mip chain pre-allocation
+	uint64_t	convert;		// R_ConvertTextureFormat (RGBA8 -> 565/4444)
+	uint64_t	subImage;		// glTexSubImage2D
+	uint64_t	genMip;			// glGenerateMipmap
+	uint64_t	texParams;		// glTexParameter tail
+	uint64_t	total;			// whole of R_FindImageFile, cache hits included
+	int			numImages;
+	int			numProbeMisses;
+} imgProfile_t;
+
+static imgProfile_t	imgProfile;
+
+// t must be a uint64_t declared at the top of the enclosing block
+#define PROFILE_ON				( r_loadProfile->integer )
+#define PROFILE_START( t )		do { (t) = PROFILE_ON ? R_ProfileTime() : 0; } while ( 0 )
+#define PROFILE_STOP( t, field )	do { if ( PROFILE_ON ) imgProfile.field += R_ProfileTime() - (t); } while ( 0 )
+
+static ID_INLINE uint64_t R_ProfileTime( void ) {
+#ifdef __ORBIS__
+	return sceKernelGetProcessTime();
+#else
+	return (uint64_t)ri.Milliseconds() * 1000;
+#endif
+}
+
+void R_ImageProfileReset( void ) {
+	Com_Memset( &imgProfile, 0, sizeof( imgProfile ) );
+}
+
+void R_ImageProfilePrint( const char *label ) {
+	const imgProfile_t	*p = &imgProfile;
+	uint64_t			accounted;
+
+	if ( !PROFILE_ON ) {
+		return;
+	}
+
+	accounted = p->probeMiss + p->decode + p->scale + p->lightScale
+		+ p->storage + p->convert + p->subImage + p->genMip + p->texParams;
+
+	ri.Printf( PRINT_ALL, "IMGPROFILE [%s]: %d images created, %llu ms in R_FindImageFile\n",
+		label, p->numImages, (unsigned long long)( p->total / 1000 ) );
+	ri.Printf( PRINT_ALL, "  fs probe misses %llu ms (%d misses)\n",
+		(unsigned long long)( p->probeMiss / 1000 ), p->numProbeMisses );
+	ri.Printf( PRINT_ALL, "  decode          %llu ms\n", (unsigned long long)( p->decode / 1000 ) );
+	ri.Printf( PRINT_ALL, "  scale           %llu ms\n", (unsigned long long)( p->scale / 1000 ) );
+	ri.Printf( PRINT_ALL, "  lightscale      %llu ms\n", (unsigned long long)( p->lightScale / 1000 ) );
+	ri.Printf( PRINT_ALL, "  gl storage      %llu ms\n", (unsigned long long)( p->storage / 1000 ) );
+	ri.Printf( PRINT_ALL, "  format convert  %llu ms\n", (unsigned long long)( p->convert / 1000 ) );
+	ri.Printf( PRINT_ALL, "  gl subimage     %llu ms\n", (unsigned long long)( p->subImage / 1000 ) );
+	ri.Printf( PRINT_ALL, "  gl genmipmap    %llu ms\n", (unsigned long long)( p->genMip / 1000 ) );
+	ri.Printf( PRINT_ALL, "  gl texparams    %llu ms\n", (unsigned long long)( p->texParams / 1000 ) );
+	// buckets also cover images created outside R_FindImageFile (lightmaps,
+	// internal images), so they can exceed the R_FindImageFile figure
+	ri.Printf( PRINT_ALL, "  accounted       %llu ms / unattributed %llu ms\n",
+		(unsigned long long)( accounted / 1000 ),
+		(unsigned long long)( ( p->total > accounted ? p->total - accounted : 0 ) / 1000 ) );
+}
 
 /*
 ** R_GammaCorrect
@@ -2025,7 +2105,12 @@ static GLenum PixelDataFormatFromInternalFormat(GLenum internalFormat)
 	}
 }
 
-static void RawImage_UploadTexture(GLuint texture, byte *data, int x, int y, int width, int height, GLenum target, GLenum picFormat, GLenum dataFormat, GLenum dataType, int numMips, GLenum internalFormat, imgType_t type, imgFlags_t flags, qboolean subtexture )
+/*
+storageAllocated tells us whether the caller already declared this level with
+glTexImage2D. When it did not, the level is declared here with its pixels in
+one call instead of an empty declaration followed by a sub-image upload.
+*/
+static void RawImage_UploadTexture(GLuint texture, byte *data, int x, int y, int width, int height, GLenum target, GLenum picFormat, GLenum dataFormat, GLenum dataType, int numMips, GLenum internalFormat, imgType_t type, imgFlags_t flags, qboolean storageAllocated )
 {
 	qboolean rgtc = internalFormat == GL_COMPRESSED_RG_RGTC2;
 	qboolean rgba8 = picFormat == GL_RGBA8 || picFormat == GL_SRGB8_ALPHA8_EXT;
@@ -2034,6 +2119,7 @@ static void RawImage_UploadTexture(GLuint texture, byte *data, int x, int y, int
 	int size, miplevel;
 	qboolean lastMip = qfalse;
 	byte *formatBuffer = NULL;
+	uint64_t profileTime;
 
 	if (qglesMajorVersion && rgba8 && (dataFormat != GL_RGBA || dataType != GL_UNSIGNED_BYTE))
 	{
@@ -2048,7 +2134,9 @@ static void RawImage_UploadTexture(GLuint texture, byte *data, int x, int y, int
 
 		if (!rgba)
 		{
+			PROFILE_START(profileTime);
 			qglCompressedTextureSubImage2DEXT(texture, target, miplevel, x, y, width, height, picFormat, size, data);
+			PROFILE_STOP(profileTime, subImage);
 		}
 		else
 		{
@@ -2057,20 +2145,35 @@ static void RawImage_UploadTexture(GLuint texture, byte *data, int x, int y, int
 
 			if (rgba8 && rgtc)
 				RawImage_UploadToRgtc2Texture(texture, miplevel, x, y, width, height, data);
-			else if (formatBuffer)
-			{
-				R_ConvertTextureFormat(data, width, height, dataFormat, dataType, formatBuffer);
-				qglTextureSubImage2DEXT(texture, target, miplevel, x, y, width, height, dataFormat, dataType, formatBuffer);
-			}
 			else
-				qglTextureSubImage2DEXT(texture, target, miplevel, x, y, width, height, dataFormat, dataType, data);
+			{
+				const byte *levelData = data;
+
+				if (formatBuffer)
+				{
+					PROFILE_START(profileTime);
+					R_ConvertTextureFormat(data, width, height, dataFormat, dataType, formatBuffer);
+					PROFILE_STOP(profileTime, convert);
+
+					levelData = formatBuffer;
+				}
+
+				PROFILE_START(profileTime);
+				if (storageAllocated)
+					qglTextureSubImage2DEXT(texture, target, miplevel, x, y, width, height, dataFormat, dataType, levelData);
+				else
+					qglTextureImage2DEXT(texture, target, miplevel, internalFormat, width, height, 0, dataFormat, dataType, levelData);
+				PROFILE_STOP(profileTime, subImage);
+			}
 		}
 
 		if (!lastMip && numMips < 2)
 		{
 			if (glRefConfig.framebufferObject)
 			{
+				PROFILE_START(profileTime);
 				qglGenerateTextureMipmapEXT(texture, target);
+				PROFILE_STOP(profileTime, genMip);
 				break;
 			}
 			else if (rgba8)
@@ -2107,7 +2210,7 @@ Upload32
 
 ===============
 */
-static void Upload32(byte *data, int x, int y, int width, int height, GLenum picFormat, GLenum dataFormat, GLenum dataType, int numMips, image_t *image, qboolean scaled)
+static void Upload32(byte *data, int x, int y, int width, int height, GLenum picFormat, GLenum dataFormat, GLenum dataType, int numMips, image_t *image, qboolean scaled, qboolean storageAllocated)
 {
 	int			i, c;
 
@@ -2117,6 +2220,7 @@ static void Upload32(byte *data, int x, int y, int width, int height, GLenum pic
 	qboolean rgba8 = picFormat == GL_RGBA8 || picFormat == GL_SRGB8_ALPHA8_EXT;
 	qboolean mipmap = !!(flags & IMGFLAG_MIPMAP) && (rgba8 || numMips > 1);
 	qboolean cubemap = !!(flags & IMGFLAG_CUBEMAP);
+	uint64_t profileTime;
 
 	// These operations cannot be performed on non-rgba8 images.
 	if (rgba8 && !cubemap)
@@ -2128,7 +2232,11 @@ static void Upload32(byte *data, int x, int y, int width, int height, GLenum pic
 
 			// This corresponds to what the OpenGL1 renderer does.
 			if (!(flags & IMGFLAG_NOLIGHTSCALE) && (scaled || mipmap))
+			{
+				PROFILE_START(profileTime);
 				R_LightScaleTexture(data, width, height, !mipmap);
+				PROFILE_STOP(profileTime, lightScale);
+			}
 		}
 
 		if (glRefConfig.swizzleNormalmap && (type == IMGTYPE_NORMAL || type == IMGTYPE_NORMALHEIGHT))
@@ -2140,7 +2248,7 @@ static void Upload32(byte *data, int x, int y, int width, int height, GLenum pic
 		for (i = 0; i < 6; i++)
 		{
 			int w2 = width, h2 = height;
-			RawImage_UploadTexture(image->texnum, data, x, y, width, height, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, picFormat, dataFormat, dataType, numMips, internalFormat, type, flags, qfalse);
+			RawImage_UploadTexture(image->texnum, data, x, y, width, height, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, picFormat, dataFormat, dataType, numMips, internalFormat, type, flags, storageAllocated);
 			for (c = numMips; c; c--)
 			{
 				data += CalculateMipSize(w2, h2, picFormat);
@@ -2151,7 +2259,7 @@ static void Upload32(byte *data, int x, int y, int width, int height, GLenum pic
 	}
 	else
 	{
-		RawImage_UploadTexture(image->texnum, data, x, y, width, height, GL_TEXTURE_2D, picFormat, dataFormat, dataType, numMips, internalFormat, type, flags, qfalse);
+		RawImage_UploadTexture(image->texnum, data, x, y, width, height, GL_TEXTURE_2D, picFormat, dataFormat, dataType, numMips, internalFormat, type, flags, storageAllocated);
 	}
 
 	GL_CheckErrors();
@@ -2176,8 +2284,10 @@ image_t *R_CreateImage2( const char *name, byte *pic, int width, int height, GLe
 	qboolean    cubemap = !!(flags & IMGFLAG_CUBEMAP);
 	qboolean    picmip = !!(flags & IMGFLAG_PICMIP);
 	qboolean    lastMip;
+	qboolean    allocStorage = qtrue;
 	GLenum textureTarget = cubemap ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D;
 	GLenum dataFormat, dataType;
+	uint64_t profileTime;
 
 	if (strlen(name) >= MAX_QPATH ) {
 		ri.Error (ERR_DROP, "R_CreateImage: \"%s\" is too long", name);
@@ -2193,6 +2303,7 @@ image_t *R_CreateImage2( const char *name, byte *pic, int width, int height, GLe
 	image = tr.images[tr.numImages] = ri.Hunk_Alloc( sizeof( image_t ), h_low );
 	qglGenTextures(1, &image->texnum);
 	tr.numImages++;
+	imgProfile.numImages++;
 
 	image->type = type;
 	image->flags = flags;
@@ -2285,7 +2396,11 @@ image_t *R_CreateImage2( const char *name, byte *pic, int width, int height, GLe
 	if (!cubemap)
 	{
 		if (rgba8)
+		{
+			PROFILE_START(profileTime);
 			scaled = RawImage_ScaleToPower2(&pic, &width, &height, type, flags, &resampledBuffer);
+			PROFILE_STOP(profileTime, scale);
+		}
 		else if (pic && picmip)
 		{
 			for (miplevel = r_picmip->integer; miplevel > 0 && numMips > 1; miplevel--, numMips--)
@@ -2301,39 +2416,63 @@ image_t *R_CreateImage2( const char *name, byte *pic, int width, int height, GLe
 	image->uploadWidth = width;
 	image->uploadHeight = height;
 
-	// Allocate texture storage so we don't have to worry about it later.
-	mipWidth = width;
-	mipHeight = height;
-	miplevel = 0;
-	do
+#ifdef __ORBIS__
+	// Piglet allocates GPU memory inside every glTexImage2D level -- measured
+	// at roughly 5 ms a call, ~40 ms per image, which was 78% of a q3dm1 load
+	// while the pixel upload itself cost 1 ms across the whole map. Declaring
+	// the mip chain up front is pure waste on the common path: glGenerateMipmap
+	// produces levels 1..n itself, so only level 0 has to exist and it may as
+	// well carry its pixels. RawImage_UploadTexture declares it instead.
+	//
+	// Excluded: images created empty (FBO attachments, lightmap atlases filled
+	// later by R_UpdateSubImage), cubemaps, and the compressed/DDS and RGTC
+	// paths, which all upload through sub-image calls into existing storage.
+	if ( r_fastTextureUpload->integer && pic && !cubemap && rgba8 && numMips < 2
+		&& internalFormat != GL_COMPRESSED_RG_RGTC2 )
 	{
-		lastMip = !mipmap || (mipWidth == 1 && mipHeight == 1);
-		if (cubemap)
-		{
-			int i;
-
-			for (i = 0; i < 6; i++)
-				qglTextureImage2DEXT(image->texnum, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, miplevel, internalFormat, mipWidth, mipHeight, 0, dataFormat, dataType, NULL);
-		}
-		else
-		{
-			qglTextureImage2DEXT(image->texnum, GL_TEXTURE_2D, miplevel, internalFormat, mipWidth, mipHeight, 0, dataFormat, dataType, NULL);
-		}
-
-		mipWidth  = MAX(1, mipWidth >> 1);
-		mipHeight = MAX(1, mipHeight >> 1);
-		miplevel++;
+		allocStorage = qfalse;
 	}
-	while (!lastMip);
+#endif
+
+	// Allocate texture storage so we don't have to worry about it later.
+	if (allocStorage)
+	{
+		PROFILE_START(profileTime);
+		mipWidth = width;
+		mipHeight = height;
+		miplevel = 0;
+		do
+		{
+			lastMip = !mipmap || (mipWidth == 1 && mipHeight == 1);
+			if (cubemap)
+			{
+				int i;
+
+				for (i = 0; i < 6; i++)
+					qglTextureImage2DEXT(image->texnum, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, miplevel, internalFormat, mipWidth, mipHeight, 0, dataFormat, dataType, NULL);
+			}
+			else
+			{
+				qglTextureImage2DEXT(image->texnum, GL_TEXTURE_2D, miplevel, internalFormat, mipWidth, mipHeight, 0, dataFormat, dataType, NULL);
+			}
+
+			mipWidth  = MAX(1, mipWidth >> 1);
+			mipHeight = MAX(1, mipHeight >> 1);
+			miplevel++;
+		}
+		while (!lastMip);
+		PROFILE_STOP(profileTime, storage);
+	}
 
 	// Upload data.
 	if (pic)
-		Upload32(pic, 0, 0, width, height, picFormat, dataFormat, dataType, numMips, image, scaled);
+		Upload32(pic, 0, 0, width, height, picFormat, dataFormat, dataType, numMips, image, scaled, allocStorage);
 
 	if (resampledBuffer != NULL)
 		ri.Hunk_FreeTempMemory(resampledBuffer);
 
 	// Set all necessary texture parameters.
+	PROFILE_START(profileTime);
 	qglTextureParameterfEXT(image->texnum, textureTarget, GL_TEXTURE_WRAP_S, glWrapClampMode);
 	qglTextureParameterfEXT(image->texnum, textureTarget, GL_TEXTURE_WRAP_T, glWrapClampMode);
 
@@ -2364,6 +2503,7 @@ image_t *R_CreateImage2( const char *name, byte *pic, int width, int height, GLe
 			qglTextureParameterfEXT(image->texnum, textureTarget, GL_TEXTURE_MAG_FILTER, mipmap ? gl_filter_max : GL_LINEAR);
 			break;
 	}
+	PROFILE_STOP(profileTime, texParams);
 
 	GL_CheckErrors();
 
@@ -2396,7 +2536,7 @@ void R_UpdateSubImage( image_t *image, byte *pic, int x, int y, int width, int h
 	dataFormat = PixelDataFormatFromInternalFormat(image->internalFormat);
 	dataType = picFormat == GL_RGBA16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE;
 
-	Upload32(pic, x, y, width, height, picFormat, dataFormat, dataType, 0, image, qfalse);
+	Upload32(pic, x, y, width, height, picFormat, dataFormat, dataType, 0, image, qfalse, qtrue);
 }
 
 //===================================================================
@@ -2424,6 +2564,36 @@ static imageExtToLoaderMap_t imageLoaders[ ] =
 };
 
 static int numImageLoaders = ARRAY_LEN( imageLoaders );
+
+/*
+=================
+R_ProbeImageLoader
+
+Runs one image loader, charging the time to the decode bucket when the file
+was there and to the filesystem-probe bucket when it was not. Extension
+probing misses do no decode work, so the split tells the two apart.
+=================
+*/
+static void R_ProbeImageLoader( int loader, const char *fileName, byte **pic, int *width, int *height )
+{
+	uint64_t profileTime;
+
+	PROFILE_START(profileTime);
+	imageLoaders[loader].ImageLoader( fileName, pic, width, height );
+
+	if ( !PROFILE_ON ) {
+		return;
+	}
+
+	profileTime = R_ProfileTime() - profileTime;
+
+	if ( *pic ) {
+		imgProfile.decode += profileTime;
+	} else {
+		imgProfile.probeMiss += profileTime;
+		imgProfile.numProbeMisses++;
+	}
+}
 
 /*
 =================
@@ -2467,7 +2637,7 @@ void R_LoadImage( const char *name, byte **pic, int *width, int *height, GLenum 
 		if (ext && *ext && Q_stricmp(ext, "dds")) {
 			for (i = 0; i < numImageLoaders; i++) {
 				if (!Q_stricmp(ext, imageLoaders[i].ext)) {
-					imageLoaders[i].ImageLoader(localName, pic, width, height);
+					R_ProbeImageLoader(i, localName, pic, width, height);
 					if (*pic) return;
 					orgNameFailed = qtrue;
 					orgLoader = i;
@@ -2482,7 +2652,7 @@ void R_LoadImage( const char *name, byte **pic, int *width, int *height, GLenum 
 			if (i == orgLoader)
 				continue;
 			altName = va("%s.%s", localName, imageLoaders[i].ext);
-			imageLoaders[i].ImageLoader(altName, pic, width, height);
+			R_ProbeImageLoader(i, altName, pic, width, height);
 			if (*pic) {
 				if (orgNameFailed)
 					ri.Printf(PRINT_DEVELOPER, "WARNING: %s not present, using %s instead\n", name, altName);
@@ -2497,7 +2667,7 @@ void R_LoadImage( const char *name, byte **pic, int *width, int *height, GLenum 
 	if (ext && *ext && Q_stricmp(ext, "dds")) {
 		for (i = 0; i < numImageLoaders; i++) {
 			if (!Q_stricmp(ext, imageLoaders[i].ext)) {
-				imageLoaders[i].ImageLoader(localName, pic, width, height);
+				R_ProbeImageLoader(i, localName, pic, width, height);
 				if (*pic) return;
 				orgNameFailed = qtrue;
 				orgLoader = i;
@@ -2514,7 +2684,7 @@ void R_LoadImage( const char *name, byte **pic, int *width, int *height, GLenum 
 		if (!Q_stricmp(imageLoaders[i].ext, "dds"))
 			continue;
 		altName = va("%s.%s", localName, imageLoaders[i].ext);
-		imageLoaders[i].ImageLoader(altName, pic, width, height);
+		R_ProbeImageLoader(i, altName, pic, width, height);
 		if (*pic) {
 			if (orgNameFailed)
 				ri.Printf(PRINT_DEVELOPER, "WARNING: %s not present, using %s instead\n", name, altName);
@@ -2536,9 +2706,12 @@ R_FindImageFile
 
 Finds or loads the given image.
 Returns NULL if it fails, not a default image.
+
+Call R_FindImageFile rather than this directly -- it is the wrapper that owns
+the load profiling.
 ==============
 */
-image_t	*R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags )
+static image_t *R_FindImageFileInternal( const char *name, imgType_t type, imgFlags_t flags )
 {
 	image_t	*image;
 	int		width, height;
@@ -2699,6 +2872,30 @@ image_t	*R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags )
 
 	image = R_CreateImage2( ( char * ) name, pic, width, height, picFormat, picNumMips, type, flags, 0 );
 	ri.Free( pic );
+	return image;
+}
+
+image_t	*R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags )
+{
+	static int	profileDepth;
+	uint64_t	profileTime;
+	image_t		*image;
+
+	if ( !PROFILE_ON ) {
+		return R_FindImageFileInternal( name, type, flags );
+	}
+
+	profileDepth++;
+	profileTime = R_ProfileTime();
+
+	image = R_FindImageFileInternal( name, type, flags );
+
+	// only the outermost call contributes, so the nested normalmap lookup
+	// is not counted twice
+	if ( --profileDepth == 0 ) {
+		imgProfile.total += R_ProfileTime() - profileTime;
+	}
+
 	return image;
 }
 

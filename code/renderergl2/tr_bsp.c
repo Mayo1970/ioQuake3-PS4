@@ -2771,17 +2771,38 @@ void RE_LoadWorldMap( const char *name ) {
 	}
 
 	// load into heap
-	R_LoadEntities( &header->lumps[LUMP_ENTITIES] );
-	R_LoadShaders( &header->lumps[LUMP_SHADERS] );
-	R_LoadLightmaps( &header->lumps[LUMP_LIGHTMAPS], &header->lumps[LUMP_SURFACES] );
-	R_LoadPlanes (&header->lumps[LUMP_PLANES]);
-	R_LoadFogs( &header->lumps[LUMP_FOGS], &header->lumps[LUMP_BRUSHES], &header->lumps[LUMP_BRUSHSIDES] );
-	R_LoadSurfaces( &header->lumps[LUMP_SURFACES], &header->lumps[LUMP_DRAWVERTS], &header->lumps[LUMP_DRAWINDEXES] );
-	R_LoadMarksurfaces (&header->lumps[LUMP_LEAFSURFACES]);
-	R_LoadNodesAndLeafs (&header->lumps[LUMP_NODES], &header->lumps[LUMP_LEAFS]);
-	R_LoadSubmodels (&header->lumps[LUMP_MODELS]);
-	R_LoadVisibility( &header->lumps[LUMP_VISIBILITY] );
-	R_LoadLightGrid( &header->lumps[LUMP_LIGHTGRID] );
+	//
+	// r_loadProfile times each lump so a slow map load can be pinned to a
+	// stage. The image-load breakdown that goes with it is printed by
+	// R_ImageProfilePrint below.
+#define MAPLOAD_STAGE( label, call ) \
+	do { \
+		int mapLoadStart = ri.Milliseconds(); \
+		call; \
+		if ( r_loadProfile->integer ) { \
+			ri.Printf( PRINT_ALL, "MAPLOAD: %s = %i ms\n", label, ri.Milliseconds() - mapLoadStart ); \
+		} \
+	} while ( 0 )
+
+	R_ImageProfileReset();
+
+	MAPLOAD_STAGE( "entities",      R_LoadEntities( &header->lumps[LUMP_ENTITIES] ) );
+	MAPLOAD_STAGE( "shaders",       R_LoadShaders( &header->lumps[LUMP_SHADERS] ) );
+	MAPLOAD_STAGE( "lightmaps",     R_LoadLightmaps( &header->lumps[LUMP_LIGHTMAPS], &header->lumps[LUMP_SURFACES] ) );
+	MAPLOAD_STAGE( "planes",        R_LoadPlanes (&header->lumps[LUMP_PLANES]) );
+	MAPLOAD_STAGE( "fogs",          R_LoadFogs( &header->lumps[LUMP_FOGS], &header->lumps[LUMP_BRUSHES], &header->lumps[LUMP_BRUSHSIDES] ) );
+	MAPLOAD_STAGE( "surfaces",      R_LoadSurfaces( &header->lumps[LUMP_SURFACES], &header->lumps[LUMP_DRAWVERTS], &header->lumps[LUMP_DRAWINDEXES] ) );
+	MAPLOAD_STAGE( "marksurfaces",  R_LoadMarksurfaces (&header->lumps[LUMP_LEAFSURFACES]) );
+	MAPLOAD_STAGE( "nodesandleafs", R_LoadNodesAndLeafs (&header->lumps[LUMP_NODES], &header->lumps[LUMP_LEAFS]) );
+	MAPLOAD_STAGE( "submodels",     R_LoadSubmodels (&header->lumps[LUMP_MODELS]) );
+	MAPLOAD_STAGE( "visibility",    R_LoadVisibility( &header->lumps[LUMP_VISIBILITY] ) );
+	MAPLOAD_STAGE( "lightgrid",     R_LoadLightGrid( &header->lumps[LUMP_LIGHTGRID] ) );
+
+#undef MAPLOAD_STAGE
+
+	R_ImageProfilePrint( "world" );
+	// start a fresh count for the cgame/ui media registered after this point
+	R_ImageProfileReset();
 
 	// determine vertex light directions
 	R_CalcVertexLightDirs();

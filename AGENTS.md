@@ -312,6 +312,15 @@ main()
   A bare leading space lands in `com_consoleLines[0]`, passes the `Com_AddStartupCommands` filter, returns
   `qtrue`, and **blocks the intro cinematic**. Same reason: use `+set name`, not `+seta name` (`seta `
   slips past the `set ` filter).
+- **Default player name = PSN username**, and it must be wired as the `name` cvar's *compiled-in
+  default*, never a `+set name`. `PS4_InitDefaultPlayerName()` (`sys_main_ps4.c`, decl in
+  `code/ps4/ps4_account.h`) caches it before `Com_Init`; `CL_Init` passes it to `Cvar_Get("name", …)`
+  under `#ifdef __PS4__`. A command-line `+set name` only sets a *value*: it marks the cvar
+  `CVAR_USER_CREATED`, and `Cvar_Get` then overwrites `resetString` with the engine default, so the
+  setup menu's Defaults button (`exec default.cfg` + `cvar_restart`, `q3_ui/ui_setup.c`) reset the
+  player name to `"UnnamedPlayer"` — permanently, since the old first-boot guard was
+  `!file_exists(cfgPath)` and the config exists by then. Saved names still win (config exec beats a
+  `Cvar_Get` default).
 - Audio user ID: call `sceUserServiceGetInitialUser()` — both `0xFF` and
   `ORBIS_USER_SERVICE_USER_ID_SYSTEM` return `0x8026000F` for `ORBIS_AUDIO_OUT_PORT_TYPE_MAIN`.
 - `OrbisPadData` struct must match the real PS4 ABI padding. Wrong padding → `scePadReadState` writes into

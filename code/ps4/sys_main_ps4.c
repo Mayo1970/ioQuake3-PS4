@@ -20,6 +20,7 @@
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qcommon.h"
 #include "../sys/sys_local.h"
+#include "ps4_account.h"
 
 void CON_Init(void);
 void CON_Print(const char *msg);
@@ -28,12 +29,6 @@ void PS4_ApplyDefaultBindings(void);
 
 /* Not declared in OpenOrbis headers. */
 int sceKernelReserveVirtualRange(void **addr, size_t len, int flags, size_t alignment);
-
-static bool file_exists(const char *filename)
-{
-	struct stat buffer;
-	return stat(filename, &buffer) == 0 ? true : false;
-}
 
 /* Debug storage for pak sync (populated before Com_Init, printed after). */
 typedef struct {
@@ -329,6 +324,28 @@ static void PS4_LoadSystemModules(void)
 	}
 }
 
+/* See ps4_account.h for why this is the cvar default and not a "+set name". */
+static char ps4_defaultPlayerName[ORBIS_USER_SERVICE_MAX_USER_NAME_LENGTH + 1] = "UnnamedPlayer";
+
+void PS4_InitDefaultPlayerName(void)
+{
+	OrbisUserServiceUserId userId = -1;
+	char psName[ORBIS_USER_SERVICE_MAX_USER_NAME_LENGTH + 1];
+
+	if (sceUserServiceGetInitialUser(&userId) != 0 || userId < 0)
+		return;
+
+	memset(psName, 0, sizeof(psName));
+	if (sceUserServiceGetUserName(userId, psName, sizeof(psName)) == 0 && psName[0]) {
+		Q_strncpyz(ps4_defaultPlayerName, psName, sizeof(ps4_defaultPlayerName));
+	}
+}
+
+const char *PS4_DefaultPlayerName(void)
+{
+	return ps4_defaultPlayerName;
+}
+
 int main(int argc, char **argv)
 {
 	char commandLine[MAX_STRING_CHARS] = {0};
@@ -382,32 +399,12 @@ int main(int argc, char **argv)
 		PS4_ADDARG(commandLine, sizeof(commandLine), "+set fs_game missionpack");
 #endif
 
-	/* Default player name = PSN username. Only set on first boot (no config file yet)
-	 * so returning players keep their saved name from q3config.cfg. */
-	{
-#if defined(STANDALONETA) || defined(MISSIONPACK)
-		const char *cfgPath = "/data/ioq3/missionpack/q3config.cfg";
-#elif defined(STANDALONEOA)
-		const char *cfgPath = "/data/ioq3/baseoa/q3config.cfg";
-#elif defined(ELITEFORCE)
-		const char *cfgPath = "/data/ioq3/baseEF/hmconfig.cfg";
-#else
-		const char *cfgPath = "/data/ioq3/baseq3/q3config.cfg";
-#endif
-		if (!file_exists(cfgPath) && !strstr(commandLine, "+set name") && !strstr(commandLine, "+seta name")) {
-			OrbisUserServiceUserId userId = -1;
-			sceUserServiceGetInitialUser(&userId);
-			if (userId >= 0) {
-				char psName[ORBIS_USER_SERVICE_MAX_USER_NAME_LENGTH + 1];
-				memset(psName, 0, sizeof(psName));
-				if (sceUserServiceGetUserName(userId, psName, sizeof(psName)) == 0 && psName[0]) {
-					char nameArg[64];
-					snprintf(nameArg, sizeof(nameArg), "+set name \"%s\"", psName);
-					PS4_ADDARG(commandLine, sizeof(commandLine), nameArg);
-				}
-			}
-		}
-	}
+	/* Default player name = PSN username. Cached here (sceUserService hit stays at
+	 * this proven boot point) and consumed by CL_Init as the "name" cvar's
+	 * compiled-in default, so it survives the setup menu's Defaults button --
+	 * a "+set name" on the command line did not: cvar_restart resets to the engine
+	 * default, which is what left it at "UnnamedPlayer". */
+	PS4_InitDefaultPlayerName();
 
 	if (!strstr(commandLine, "+set r_preferOpenGLES"))
 		PS4_ADDARG(commandLine, sizeof(commandLine), "+set r_preferOpenGLES 1");

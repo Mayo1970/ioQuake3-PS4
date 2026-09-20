@@ -18,12 +18,18 @@ static size_t s_actual_size; /* size that succeeded */
 int malloc_init(void)
 {
 	int res;
+	size_t sz = 0;
 
 	if (s_mspace)
 		return 0;
 
-	/* Try 512→128MB. ioq3+Piglet needs ~320MB min. */
-	static const size_t try_sizes[] = {
+	/* Try 2GB->128MB with MAP_FIXED first. Hunk (1536MB) + zone (64MB)
+	 * both draw from this pool, so the ceiling must clear that combined total. */
+	static const size_t try_sizes_fixed[] = {
+		0x80000000ULL, /* 2 GB */
+		0x60000000ULL, /* 1.5 GB */
+		0x40000000ULL, /* 1 GB */
+		0x30000000ULL, /* 768 MB */
 		0x20000000ULL, /*  512 MB */
 		0x18000000ULL, /*  384 MB */
 		0x14000000ULL, /*  320 MB */
@@ -33,12 +39,11 @@ int malloc_init(void)
 		0
 	};
 
-	for (int i = 0; try_sizes[i] != 0; i++) {
-		size_t sz = try_sizes[i];
+	for (int i = 0; try_sizes_fixed[i] != 0; i++) {
+		sz = try_sizes_fixed[i];
 
 		s_mem_start = NULL;
-		res = sceKernelReserveVirtualRange(&s_mem_start, sz,
-		                                   0, USER_MEM_ALIGN);
+		res = sceKernelReserveVirtualRange(&s_mem_start, sz, 0, USER_MEM_ALIGN);
 		s_last_reserve_ret = res;
 		if (res < 0)
 			continue;
@@ -48,28 +53,47 @@ int malloc_init(void)
 		                                            ORBIS_KERNEL_MAP_FIXED,
 		                                            "ioq3 User Mem");
 		s_last_map_ret = res;
-		if (res < 0) {
-			/* Unmap before retry. */
-			sceKernelMunmap(s_mem_start, sz);
-			continue;
+		if (res == 0)
+			goto success;
+
+		/* Map failed -- unmap reservation and try next size. */
+		sceKernelMunmap(s_mem_start, sz);
+	}
+
+	/* Fallback: same sizes without MAP_FIXED, kernel picks the address.
+	 * Some firmware versions allow larger blocks this way. */
+	for (int i = 0; try_sizes_fixed[i] != 0; i++) {
+		sz = try_sizes_fixed[i];
+
+		s_mem_start = NULL;
+		res = sceKernelMapNamedSystemFlexibleMemory(&s_mem_start, sz,
+		                                            ORBIS_KERNEL_PROT_CPU_RW,
+		                                            0,
+		                                            "ioq3 User Mem");
+		s_last_map_ret = res;
+		if (res == 0) {
+			s_last_reserve_ret = 0; /* no reservation needed */
+			goto success;
 		}
-
-		/* Map succeeded. */
-		s_mem_size = sz;
-		s_actual_size = sz;
-		s_mspace = sceLibcMspaceCreate("ioq3 Mspace", s_mem_start,
-		                               s_mem_size, 0);
-		if (!s_mspace)
-			return 0x30;
-
-		s_mmsize.sz  = sizeof(s_mmsize);
-		s_mmsize.ver = 1;
-		sceLibcMspaceMallocStatsFast(s_mspace, &s_mmsize);
-		return 0;
 	}
 
 	/* All sizes failed. */
 	return s_last_map_ret < 0 ? s_last_map_ret : s_last_reserve_ret;
+
+success:
+	s_mem_size = s_actual_size = sz;
+
+	s_mspace = sceLibcMspaceCreate("ioq3 Mspace", s_mem_start, s_mem_size, 0);
+	if (!s_mspace)
+		return 0x30;
+
+	s_mmsize.sz  = sizeof(s_mmsize);
+	s_mmsize.ver = 1;
+	sceLibcMspaceMallocStatsFast(s_mspace, &s_mmsize);
+
+	printf("[user_mem] Flexible memory: %zu MB @ %p\n",
+	       (size_t)(sz / (1024ULL*1024ULL)), s_mem_start);
+	return 0;
 }
 
 int malloc_get_debug(int *out_reserve, int *out_map, void **out_base,

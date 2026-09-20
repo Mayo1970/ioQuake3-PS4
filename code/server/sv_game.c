@@ -766,11 +766,11 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		botlib_export->ai.BotSetChatGender( args[1], args[2] );
 		return 0;
 	case BOTLIB_AI_SET_CHAT_NAME:
-		// TODO(ELITEFORCE): EF calls this with 2 args (no client), but
-		// botlib_export->ai.BotSetChatName is a fixed 3-arg function pointer here.
-		// PS3 made this conditional in botlib.h/be_ai_chat.c/.h; not done yet -- see
-		// step 7 status notes on the EA_UseItem-style botlib gaps.
+#ifdef ELITEFORCE
+		botlib_export->ai.BotSetChatName( args[1], VMA(2));
+#else
 		botlib_export->ai.BotSetChatName( args[1], VMA(2), args[3] );
+#endif
 		return 0;
 
 	case BOTLIB_AI_RESET_GOAL_STATE:

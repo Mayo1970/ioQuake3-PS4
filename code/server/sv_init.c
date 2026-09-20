@@ -695,11 +695,11 @@ void SV_Init (void)
 	sv_master[0] = Cvar_Get("sv_master1", "dc.dreamcast-talk.com", 0);
 	sv_master[1] = Cvar_Get("sv_master2", "", 0);
 #elif defined(ELITEFORCE)
-	// efmaster.tjps.eu is the community-run EF master ioEF itself defaults to
-	// (directory.ioquake3.org, the vanilla fallback, never has EF servers on
-	// it). Verified against both ioEF upstream and the VoyagerNX EF port.
 	sv_master[0] = Cvar_Get("sv_master1", MASTER_SERVER_NAME, 0);
 	sv_master[1] = Cvar_Get("sv_master2", "efmaster.tjps.eu", CVAR_ARCHIVE);
+#elif defined(STANDALONEOA)
+	sv_master[0] = Cvar_Get("sv_master1", MASTER_SERVER_NAME, 0);
+	sv_master[1] = Cvar_Get("sv_master2", "", 0);
 #else
 	sv_master[0] = Cvar_Get("sv_master1", MASTER_SERVER_NAME, 0);
 	sv_master[1] = Cvar_Get("sv_master2", "directory.ioquake3.org", 0);
@@ -720,11 +720,7 @@ void SV_Init (void)
 
 	// initialize bot cvars so they are listed and can be set before loading the botlib
 	SV_BotInitCvars();
-
-	// init the botlib here because we need the pre-compiler in the UI
 	SV_BotInitBotLib();
-	
-	// Load saved bans
 	Cbuf_AddText("rehashbans\n");
 }
 

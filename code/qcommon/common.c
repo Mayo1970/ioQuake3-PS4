@@ -43,11 +43,11 @@ int demo_protocols[] =
 
 #define MIN_DEDICATED_COMHUNKMEGS 1
 #ifdef __ORBIS__
-/* PS4 has 8GB RAM; needs 256MB hunk for pak files + renderer.
- * Zone kept at 48MB so hunk+zone = 304MB, safely under the 320MB mspace tier. */
-#define MIN_COMHUNKMEGS		256
-#define DEF_COMHUNKMEGS		256
-#define DEF_COMZONEMEGS		48
+/* PS4 has 8GB RAM. Raise the try-size ceiling in user_mem.c together with
+ * this — both draw from the same mspace pool (see hunk alloc below). */
+#define MIN_COMHUNKMEGS		1536
+#define DEF_COMHUNKMEGS		1536
+#define DEF_COMZONEMEGS		64
 #else
 #define MIN_COMHUNKMEGS		128
 #define DEF_COMHUNKMEGS		256
@@ -1606,10 +1606,21 @@ void Com_InitHunkMemory( void ) {
 		s_hunkTotal = cv->integer * 1024 * 1024;
 	}
 
+#ifdef __ORBIS__
+	{
+		void *ptr;
+		/* 32-byte alignment, valid pointer for free(). */
+		if (posix_memalign(&ptr, 32, s_hunkTotal) != 0) {
+			Com_Error( ERR_FATAL, "Hunk data failed to allocate %i megs", s_hunkTotal / (1024*1024) );
+		}
+		s_hunkData = (byte *)ptr;
+	}
+#else
 	s_hunkData = calloc( s_hunkTotal + 31, 1 );
 	if ( !s_hunkData ) {
 		Com_Error( ERR_FATAL, "Hunk data failed to allocate %i megs", s_hunkTotal / (1024*1024) );
 	}
+#endif
 	// cacheline align
 	s_hunkData = (byte *) ( ( (intptr_t)s_hunkData + 31 ) & ~31 );
 	Hunk_Clear();

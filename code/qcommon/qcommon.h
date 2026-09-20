@@ -287,6 +287,8 @@ extern int demo_protocols[];
 #ifndef MASTER_SERVER_NAME
 	#ifdef ELITEFORCE
 		#define MASTER_SERVER_NAME	"master.stef1.ravensoft.com"
+	#elif defined(STANDALONEOA)
+		#define MASTER_SERVER_NAME	"dpmaster.deathmask.net"
 	#else
 		#define MASTER_SERVER_NAME	"master.quake3arena.com"
 	#endif

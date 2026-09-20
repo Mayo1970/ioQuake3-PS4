@@ -12,6 +12,8 @@
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qcommon.h"
 
+extern clientActive_t cl;
+
 extern int   Key_GetCatcher(void);
 extern void  Key_SetBinding(int keynum, const char *binding);
 extern char *Key_GetBinding(int keynum);
@@ -24,10 +26,14 @@ extern void Con_Bottom(void);
 extern void PS4_AudioPause(void);
 extern void PS4_AudioResume(void);
 
-/* Always override config binding (ensure defaults). */
+/* Bind only if currently unbound, so q3config.cfg overrides win. */
 static void PS4_SetDefaultBind(int keynum, const char *keyname, const char *binding)
 {
-    Key_SetBinding(keynum, binding);
+    char *existing = Key_GetBinding(keynum);
+    if (!existing || !existing[0]) {
+        Key_SetBinding(keynum, binding);
+        Cbuf_AddText(va("bind %s \"%s\"\n", keyname, binding));
+    }
 }
 
 /* Apply PS4 bindings (post-Com_Init). Unbind conflicting keyboard keys. */
@@ -197,6 +203,9 @@ static void PS4_RumbleTick(void)
 
 static int s_frameCount  = 0;
 static int s_initDone    = 0;
+
+static int s_l3LastPress = 0;
+#define L3_DOUBLE_CLICK_MS 300
 
 
 /* =====================================================================
@@ -891,6 +900,20 @@ void IN_Frame(void)
 
             if (combo_consumed && (i == BTN_IDX_OPTIONS || i == BTN_IDX_TOUCHPAD))
                 goto next_btn;
+
+            /* L3 double-click = instant 180° turn (gameplay only). */
+            if (i == BTN_IDX_L3 && cur && !prev) {
+                int now = Sys_Milliseconds();
+                if (now - s_l3LastPress < L3_DOUBLE_CLICK_MS) {
+                    if (!in_menu && !in_text) {
+                        cl.viewangles[YAW] += 180.0f;
+                        cl.viewangles[PITCH] = 0.0f;  /* also level the view */
+                    }
+                    s_l3LastPress = now;
+                    goto next_btn;  /* skip sending K_JOY9 so walk-toggle doesn't fire */
+                }
+                s_l3LastPress = now;
+            }
 
             /* In menus, send only the synthetic key (Enter/Escape) — not the
              * JOY key as well, or the menu receives two events per press. */
